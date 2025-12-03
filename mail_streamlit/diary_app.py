@@ -12,16 +12,19 @@ import os # 環境変数として認証情報を読み込むために使用
 
 # スプレッドシートID: 日記マスターシート
 # 例: "1A2B3C4D..."
-SPREADSHEET_ID = st.secrets["app_config"].get("SPREADSHEET_ID", "YOUR_SPREADSHEET_ID_HERE")
-WORKSHEET_NAME = st.secrets["app_config"].get("WORKSHEET_NAME", "日記マスター")
+# 🚨 ここにあなたのスプレッドシートIDを直接設定します
+SPREADSHEET_ID = "1sEzw59aswIlA-8_CTyUrRBLN7OnrRIJERKUZ_bELMrY"
+# 🚨 シート名を設定します
+WORKSHEET_NAME = "実験用" 
 
 # Googleドライブ フォルダID: アップロードされた画像を保存する場所
-# 例: "0E9F8G7H..."
-DRIVE_FOLDER_ID = st.secrets["app_config"].get("DRIVE_FOLDER_ID", "YOUR_DRIVE_FOLDER_ID_HERE")
+# 🚨 ここにあなたのGoogleドライブフォルダIDを直接設定します
+# （「YOUR_DRIVE_FOLDER_ID_HERE」のままではアプリが動きません。前回設定したフォルダのIDが必要です）
+DRIVE_FOLDER_ID = "1malvBDg-fIvzFWqxAyvOwL18hoKzzJoN?ths=true" 
 
 # Gmail 下書き作成時のデフォルトの件名テンプレート
-DRAFT_SUBJECT_TEMPLATE = st.secrets["app_config"].get("DRAFT_SUBJECT_TEMPLATE", "【日報】{date}の日記更新")
-DRAFT_DEFAULT_TO_ADDRESS = st.secrets["app_config"].get("DRAFT_DEFAULT_TO_ADDRESS", "example@mailinglist.com")
+DRAFT_SUBJECT_TEMPLATE = "【日報】{date}の日記更新"
+DRAFT_DEFAULT_TO_ADDRESS = "example@mailinglist.com"
 
 # ==============================================================================
 # 2. Google API認証と初期化
@@ -517,4 +520,5 @@ else:
                     st.error(f"下書き更新エラー: {msg}")
 
             except Exception as e:
+
                 st.error(f"更新処理中に予期せぬエラーが発生しました: {e}")
