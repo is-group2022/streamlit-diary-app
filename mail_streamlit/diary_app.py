@@ -42,7 +42,7 @@ try:
     # 秘密鍵の値をSecretsから取得し、前後の空白を削除
     raw_key = st.secrets["private_key"].strip()
     
-    # Base64パディングエラーの強制修正ロジックを再度実行
+    # Base64パディングエラーの強制修正ロジック
     # Base64文字列の長さが4の倍数になるよう末尾に '=' を追加します
     missing_padding = len(raw_key) % 4
     if missing_padding:
