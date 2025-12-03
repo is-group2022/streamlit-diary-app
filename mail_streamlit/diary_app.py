@@ -26,7 +26,7 @@ WORKSHEET_NAME = "実験用"
 # Googleドライブ フォルダID: アップロードされた画像を保存する場所
 # 🚨 あなたのフォルダIDを設定してください！
 # （URL: https://drive.google.com/drive/folders/ の後に続く文字列）
-DRIVE_FOLDER_ID = "YOUR_DRIVE_FOLDER_ID_HERE" 
+DRIVE_FOLDER_ID = "1malvBDg-fIvzFWqxAyvOwL18hoKzzJoN?ths=true" 
 
 # Gmail 下書き作成時のデフォルトの件名テンプレート
 DRAFT_SUBJECT_TEMPLATE = "【日報】{date}の日記更新"
@@ -298,3 +298,4 @@ if st.session_state.data:
                  use_container_width=True)
 else:
     st.info("まだ投稿がありません。最初の投稿をしましょう！")
+
