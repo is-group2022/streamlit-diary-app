@@ -23,8 +23,7 @@ SPREADSHEET_ID = "1sEzw59aswIlA-8_CTyUrRBLN7OnrRIJERKUZ_bELMrY"
 WORKSHEET_NAME = "実験用" 
 
 # Googleドライブ フォルダID: アップロードされた画像を保存する場所
-# 🚨🚨🚨 ここをあなたのGoogleドライブフォルダIDに置き換えました 🚨🚨🚨
-# （URL: https://drive.google.com/drive/folders/ の後に続く文字列）
+# 🚨🚨🚨 あなたのGoogleドライブフォルダIDを設定済みです 🚨🚨🚨
 DRIVE_FOLDER_ID = "1malvBDg-fIvzFWqxAyvOwL18hoKzzJoN" 
 
 # Gmail 下書き作成時のデフォルトの件名テンプレート
@@ -35,17 +34,28 @@ DRAFT_DEFAULT_TO_ADDRESS = "example@mailinglist.com"
 # 2. 認証情報の設定 (Streamlit Secretsから取得)
 # ==============================================================================
 
-# SecretsにTOML形式の [service_account] セクションを定義したため、
-# 辞書として直接読み込みます。
+# Secretsからトップレベルのキーを読み込み、認証情報辞書を再構築します
 try:
-    SERVICE_ACCOUNT_KEY = st.secrets["service_account"]
-except KeyError:
-    # ユーザーに新しいSecrets形式 ([service_account]) を使うよう促します
-    st.error("🚨 API初期化エラー: Secretsに [service_account] セクションが見つかりません。")
-    st.info("Secrets (金庫) の設定内容が古い形式かもしれません。下記「Secretsに貼り付ける内容」を再確認してください。")
+    SERVICE_ACCOUNT_KEY = {
+        "type": st.secrets["type"],
+        "project_id": st.secrets["project_id"],
+        "private_key_id": st.secrets["private_key_id"],
+        "private_key": st.secrets["private_key"],
+        "client_email": st.secrets["client_email"],
+        "client_id": st.secrets["client_id"],
+        "auth_uri": st.secrets["auth_uri"],
+        "token_uri": st.secrets["token_uri"],
+        "auth_provider_x509_cert_url": st.secrets["auth_provider_x509_cert_url"],
+        "client_x509_cert_url": st.secrets["client_x509_cert_url"],
+        "universe_domain": st.secrets["universe_domain"],
+    }
+except KeyError as e:
+    # ユーザーにSecretsのキーが不足していることを伝えます
+    st.error(f"🚨 API初期化エラー: Secretsに必須キー '{e.args[0]}' が見つかりません。")
+    st.info("Secrets (金庫) の内容が、上記「Secretsに貼り付ける内容 (最終版)」と異なっていないか確認してください。")
     st.stop()
 except Exception as e:
-    st.error(f"🚨 API初期化エラー: Googleの認証情報読み込み中にエラーが発生しました。詳細: {e}")
+    st.error(f"🚨 API初期化エラー: Googleの認証情報読み込み中に予期せぬエラーが発生しました。詳細: {e}")
     st.stop()
 
 
