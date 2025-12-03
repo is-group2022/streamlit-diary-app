@@ -5,7 +5,7 @@ import json
 import io
 import time
 import base64
-import re # 正規表現ライブラリをインポート
+import textwrap # テキストの折り返しライブラリをインポート
 
 # Google APIライブラリのインポート
 from gspread import service_account, Worksheet
@@ -13,7 +13,7 @@ from gspread.exceptions import APIError
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 from google.auth.transport.requests import Request
-from google.auth.exceptions import DefaultCredentialsError # 追加
+from google.auth.exceptions import DefaultCredentialsError
 from google.oauth2.service_account import Credentials
 import google.auth
 
@@ -39,29 +39,26 @@ DRAFT_DEFAULT_TO_ADDRESS = "example@mailinglist.com"
 
 # Secretsからトップレベルのキーを読み込み、認証情報辞書を再構築します
 try:
-    raw_key = st.secrets["private_key"]
+    # 秘密鍵の値をSecretsから取得し、前後の空白を削除
+    raw_key = st.secrets["private_key"].strip()
     
-    # 🚨 秘密鍵の文字列から、BEGIN/ENDマーカーと改行を全て取り除き、Base64データ本体だけを抽出します。
-    # Base64のエラーを修復するためのロジックです。
-    body = raw_key.replace('-----BEGIN PRIVATE KEY-----', '') \
-                  .replace('-----END PRIVATE KEY-----', '') \
-                  .replace('\n', '') \
-                  .strip()
-    
-    # Base64パディングエラーの強制修正ロジック
-    # 文字列の長さが4の倍数でない場合、末尾に '=' を追加して長さを修正します。
-    missing_padding = len(body) % 4
+    # Base64パディングエラーの強制修正ロジックを再度実行
+    # Base64文字列の長さが4の倍数になるよう末尾に '=' を追加します
+    missing_padding = len(raw_key) % 4
     if missing_padding:
-        body += '=' * (4 - missing_padding)
+        raw_key += '=' * (4 - missing_padding)
 
-    # 🚨 Google認証が期待するPEM形式（BEGIN/END/改行付き）に再度組み立て直します
-    private_key_value = f"-----BEGIN PRIVATE KEY-----\n{body}\n-----END PRIVATE KEY-----"
+    # 🚨 Google認証が期待するPEM形式（BEGIN/END/改行付き）に再組み立て直します
+    # 秘密鍵のBase64文字列を64文字ずつで改行します (PEM形式の標準)
+    pem_body = textwrap.fill(raw_key, width=64)
+    
+    private_key_value = f"-----BEGIN PRIVATE KEY-----\n{pem_body}\n-----END PRIVATE KEY-----"
 
     SERVICE_ACCOUNT_KEY = {
         "type": st.secrets["type"],
         "project_id": st.secrets["project_id"],
         "private_key_id": st.secrets["private_key_id"],
-        "private_key": private_key_value, # 🚨 Base64エラーを修復した値を使用
+        "private_key": private_key_value, # 🚨 Base64エラーを修復し、PEM形式に再構築した値を使用
         "client_email": st.secrets["client_email"],
         "client_id": st.secrets["client_id"],
         "auth_uri": st.secrets["auth_uri"],
@@ -75,7 +72,6 @@ except KeyError as e:
     st.info("Secrets (金庫) の内容が正しいか確認してください。")
     st.stop()
 except Exception as e:
-    # ここにBase64エラーが来る可能性は低くなります
     st.error(f"🚨 API初期化エラー: Googleの認証情報読み込み中に予期せぬエラーが発生しました。詳細: {e}")
     st.stop()
 
