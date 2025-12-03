@@ -19,14 +19,13 @@ import google.auth
 # ==============================================================================
 
 # スプレッドシートID: 日記マスターシート
-# 🚨 ユーザー提供の情報に基づき設定
 SPREADSHEET_ID = "1sEzw59aswIlA-8_CTyUrRBLN7OnrRIJERKUZ_bELMrY"
 WORKSHEET_NAME = "実験用" 
 
 # Googleドライブ フォルダID: アップロードされた画像を保存する場所
-# 🚨 あなたのフォルダIDを設定してください！
+# 🚨🚨🚨 ここをあなたのGoogleドライブフォルダIDに置き換えました 🚨🚨🚨
 # （URL: https://drive.google.com/drive/folders/ の後に続く文字列）
-DRIVE_FOLDER_ID = "1malvBDg-fIvzFWqxAyvOwL18hoKzzJoN?ths=true" 
+DRIVE_FOLDER_ID = "1malvBDg-fIvzFWqxAyvOwL18hoKzzJoN" 
 
 # Gmail 下書き作成時のデフォルトの件名テンプレート
 DRAFT_SUBJECT_TEMPLATE = "【日報】{date}の日記更新"
@@ -36,18 +35,17 @@ DRAFT_DEFAULT_TO_ADDRESS = "example@mailinglist.com"
 # 2. 認証情報の設定 (Streamlit Secretsから取得)
 # ==============================================================================
 
+# SecretsにTOML形式の [service_account] セクションを定義したため、
+# 辞書として直接読み込みます。
 try:
-    # 以前の認証エラー(AttrDict)を回避するため、JSON文字列としてSecretsから読み込みます。
-    # Streamlit Secretsには 'gcp_service_account' というキーでJSON文字列が格納されている想定です。
-    SERVICE_ACCOUNT_KEY = json.loads(st.secrets["gcp_service_account"])
+    SERVICE_ACCOUNT_KEY = st.secrets["service_account"]
 except KeyError:
-    # Secretsに 'gcp_service_account' キーがない場合のフォールバック（デバッグ用）
-    SERVICE_ACCOUNT_KEY = {}
-    st.error("🚨 API初期化エラー: Secretsに'gcp_service_account'キーが見つかりません。")
-except json.JSONDecodeError:
-    st.error("🚨 API初期化エラー: Secretsの'gcp_service_account'の値が不正なJSON形式です。")
+    # ユーザーに新しいSecrets形式 ([service_account]) を使うよう促します
+    st.error("🚨 API初期化エラー: Secretsに [service_account] セクションが見つかりません。")
+    st.info("Secrets (金庫) の設定内容が古い形式かもしれません。下記「Secretsに貼り付ける内容」を再確認してください。")
+    st.stop()
 except Exception as e:
-    st.error(f"🚨 API初期化エラー: Googleの認証情報が不正です。設定を確認してください。詳細: {e}")
+    st.error(f"🚨 API初期化エラー: Googleの認証情報読み込み中にエラーが発生しました。詳細: {e}")
     st.stop()
 
 
@@ -66,7 +64,7 @@ def init_gspread_client(creds_info):
                                                       scopes=['https://www.googleapis.com/auth/spreadsheets',
                                                               'https://www.googleapis.com/auth/drive'])
         # gspreadクライアントを初期化し、スプレッドシートを開く
-        client = sa = service_account(client_email=creds_info["client_email"], creds=creds)
+        client = service_account(client_email=creds_info["client_email"], creds=creds)
         spreadsheet = client.open_by_key(SPREADSHEET_ID)
         worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
         return client, worksheet
@@ -90,7 +88,6 @@ def init_drive_service(creds_info):
         # Driveサービス
         drive_service = build('drive', 'v3', credentials=creds)
         # Gmailサービス (メール下書き作成用)
-        # サービスアカウントは自身として振る舞うため、user='me' を指定
         gmail_service = build('gmail', 'v1', credentials=creds)
         
         return drive_service, gmail_service
@@ -177,12 +174,15 @@ def post_diary(writer, title, body, uploaded_file):
     # 画像アップロード処理
     image_link = ""
     if uploaded_file is not None:
-        with st.spinner('画像をGoogleドライブにアップロード中...'):
-            image_link = upload_file_to_drive(uploaded_file, uploaded_file.name, DRIVE_FOLDER_ID, drive_service)
-        
-        if "アップロード失敗" in image_link:
-            st.error(f"画像アップロード失敗: {image_link}")
-            return False
+        if DRIVE_FOLDER_ID == "YOUR_DRIVE_FOLDER_ID_HERE":
+            st.error("⚠️ GoogleドライブのフォルダIDが設定されていません。画像アップロードはスキップします。")
+        else:
+            with st.spinner('画像をGoogleドライブにアップロード中...'):
+                image_link = upload_file_to_drive(uploaded_file, uploaded_file.name, DRIVE_FOLDER_ID, drive_service)
+            
+            if "アップロード失敗" in image_link:
+                st.error(f"画像アップロード失敗: {image_link}")
+                return False
 
     # タイムスタンプと投稿データ
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -284,7 +284,6 @@ if 'last_post' in st.session_state:
 # ==============================================================================
 # 6. 履歴表示 (オプション - 負荷軽減のため簡易表示)
 # ==============================================================================
-# 注: 大量のデータがある場合、この処理は重くなります。
 
 st.markdown("---")
 st.subheader("📝 最新の日記履歴 (リアルタイムではありません)")
@@ -298,4 +297,3 @@ if st.session_state.data:
                  use_container_width=True)
 else:
     st.info("まだ投稿がありません。最初の投稿をしましょう！")
-
