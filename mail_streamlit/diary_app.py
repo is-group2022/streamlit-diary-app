@@ -15,7 +15,7 @@ from google.oauth2.service_account import Credentials
 import google.auth
 
 # ==============================================================================
-# ⚠️ 1. 設定情報 (このアプリがアクセスするリソースIDを設定してください)
+# ⚠️ 1. 設定情報
 # ==============================================================================
 
 # スプレッドシートID: 日記マスターシート
@@ -23,7 +23,7 @@ SPREADSHEET_ID = "1sEzw59aswIlA-8_CTyUrRBLN7OnrRIJERKUZ_bELMrY"
 WORKSHEET_NAME = "実験用" 
 
 # Googleドライブ フォルダID: アップロードされた画像を保存する場所
-# 🚨🚨🚨 あなたのGoogleドライブフォルダIDを設定済みです 🚨🚨🚨
+# 🚨 フォルダIDは設定済みです
 DRIVE_FOLDER_ID = "1malvBDg-fIvzFWqxAyvOwL18hoKzzJoN" 
 
 # Gmail 下書き作成時のデフォルトの件名テンプレート
@@ -36,11 +36,12 @@ DRAFT_DEFAULT_TO_ADDRESS = "example@mailinglist.com"
 
 # Secretsからトップレベルのキーを読み込み、認証情報辞書を再構築します
 try:
+    # private_keyの値に対して.strip()を呼び出し、前後の不要な空白・改行を除去します
     SERVICE_ACCOUNT_KEY = {
         "type": st.secrets["type"],
         "project_id": st.secrets["project_id"],
         "private_key_id": st.secrets["private_key_id"],
-        "private_key": st.secrets["private_key"],
+        "private_key": st.secrets["private_key"].strip(), # 🚨 ここで自動除去します
         "client_email": st.secrets["client_email"],
         "client_id": st.secrets["client_id"],
         "auth_uri": st.secrets["auth_uri"],
@@ -52,7 +53,7 @@ try:
 except KeyError as e:
     # ユーザーにSecretsのキーが不足していることを伝えます
     st.error(f"🚨 API初期化エラー: Secretsに必須キー '{e.args[0]}' が見つかりません。")
-    st.info("Secrets (金庫) の内容が、上記「Secretsに貼り付ける内容 (最終版)」と異なっていないか確認してください。")
+    st.info("Secrets (金庫) の内容が、下記「Secretsに貼り付ける内容 (最終版)」と異なっていないか確認してください。")
     st.stop()
 except Exception as e:
     st.error(f"🚨 API初期化エラー: Googleの認証情報読み込み中に予期せぬエラーが発生しました。詳細: {e}")
