@@ -4,6 +4,8 @@ import pandas as pd
 import json
 import io
 import time
+import base64
+import re # 正規表現ライブラリをインポート
 
 # Google APIライブラリのインポート
 from gspread import service_account, Worksheet
@@ -11,6 +13,7 @@ from gspread.exceptions import APIError
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 from google.auth.transport.requests import Request
+from google.auth.exceptions import DefaultCredentialsError # 追加
 from google.oauth2.service_account import Credentials
 import google.auth
 
@@ -36,12 +39,29 @@ DRAFT_DEFAULT_TO_ADDRESS = "example@mailinglist.com"
 
 # Secretsからトップレベルのキーを読み込み、認証情報辞書を再構築します
 try:
-    # private_keyの値に対して.strip()を呼び出し、前後の不要な空白・改行を除去します
+    raw_key = st.secrets["private_key"]
+    
+    # 🚨 秘密鍵の文字列から、BEGIN/ENDマーカーと改行を全て取り除き、Base64データ本体だけを抽出します。
+    # Base64のエラーを修復するためのロジックです。
+    body = raw_key.replace('-----BEGIN PRIVATE KEY-----', '') \
+                  .replace('-----END PRIVATE KEY-----', '') \
+                  .replace('\n', '') \
+                  .strip()
+    
+    # Base64パディングエラーの強制修正ロジック
+    # 文字列の長さが4の倍数でない場合、末尾に '=' を追加して長さを修正します。
+    missing_padding = len(body) % 4
+    if missing_padding:
+        body += '=' * (4 - missing_padding)
+
+    # 🚨 Google認証が期待するPEM形式（BEGIN/END/改行付き）に再度組み立て直します
+    private_key_value = f"-----BEGIN PRIVATE KEY-----\n{body}\n-----END PRIVATE KEY-----"
+
     SERVICE_ACCOUNT_KEY = {
         "type": st.secrets["type"],
         "project_id": st.secrets["project_id"],
         "private_key_id": st.secrets["private_key_id"],
-        "private_key": st.secrets["private_key"].strip(), # 🚨 .strip()で空白・改行耐性を強化
+        "private_key": private_key_value, # 🚨 Base64エラーを修復した値を使用
         "client_email": st.secrets["client_email"],
         "client_id": st.secrets["client_id"],
         "auth_uri": st.secrets["auth_uri"],
@@ -51,11 +71,11 @@ try:
         "universe_domain": st.secrets["universe_domain"],
     }
 except KeyError as e:
-    # ユーザーにSecretsのキーが不足していることを伝えます
     st.error(f"🚨 API初期化エラー: Secretsに必須キー '{e.args[0]}' が見つかりません。")
-    st.info("Secrets (金庫) の内容が、上記「Secretsに貼り付ける内容 (最終版)」と異なっていないか確認してください。")
+    st.info("Secrets (金庫) の内容が正しいか確認してください。")
     st.stop()
 except Exception as e:
+    # ここにBase64エラーが来る可能性は低くなります
     st.error(f"🚨 API初期化エラー: Googleの認証情報読み込み中に予期せぬエラーが発生しました。詳細: {e}")
     st.stop()
 
@@ -82,6 +102,9 @@ def init_gspread_client(creds_info):
     except APIError as e:
         st.error(f"🚨 Google Sheets APIエラー: スプレッドシートIDまたはシート名が不正です。権限も確認してください。詳細: {e}")
         return None, None
+    except DefaultCredentialsError as e:
+         st.error(f"🚨 認証情報エラー: 秘密鍵の形式が不正です。Secretsの内容を再確認してください。詳細: {e}")
+         return None, None
     except Exception as e:
         st.error(f"🚨 gspreadクライアント初期化エラー: {e}")
         return None, None
@@ -102,6 +125,9 @@ def init_drive_service(creds_info):
         gmail_service = build('gmail', 'v1', credentials=creds)
         
         return drive_service, gmail_service
+    except DefaultCredentialsError as e:
+         st.error(f"🚨 認証情報エラー: 秘密鍵の形式が不正です。Secretsの内容を再確認してください。詳細: {e}")
+         return None, None
     except Exception as e:
         st.error(f"🚨 Google Drive/Gmail サービス初期化エラー: {e}")
         return None, None
