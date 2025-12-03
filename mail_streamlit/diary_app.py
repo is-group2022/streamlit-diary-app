@@ -41,7 +41,7 @@ try:
         "type": st.secrets["type"],
         "project_id": st.secrets["project_id"],
         "private_key_id": st.secrets["private_key_id"],
-        "private_key": st.secrets["private_key"].strip(), # 🚨 ここで自動除去します
+        "private_key": st.secrets["private_key"].strip(), # 🚨 .strip()で空白・改行耐性を強化
         "client_email": st.secrets["client_email"],
         "client_id": st.secrets["client_id"],
         "auth_uri": st.secrets["auth_uri"],
@@ -53,7 +53,7 @@ try:
 except KeyError as e:
     # ユーザーにSecretsのキーが不足していることを伝えます
     st.error(f"🚨 API初期化エラー: Secretsに必須キー '{e.args[0]}' が見つかりません。")
-    st.info("Secrets (金庫) の内容が、下記「Secretsに貼り付ける内容 (最終版)」と異なっていないか確認してください。")
+    st.info("Secrets (金庫) の内容が、上記「Secretsに貼り付ける内容 (最終版)」と異なっていないか確認してください。")
     st.stop()
 except Exception as e:
     st.error(f"🚨 API初期化エラー: Googleの認証情報読み込み中に予期せぬエラーが発生しました。詳細: {e}")
