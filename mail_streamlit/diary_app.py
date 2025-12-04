@@ -150,12 +150,12 @@ if 'global_account' not in st.session_state:
     st.session_state.global_account = ACCOUNT_OPTIONS[0]
 
 
-# タブの定義を4つに変更
+# タブの定義を4つに変更 (Tab 4 の名前を変更)
 tab1, tab2, tab3, tab4 = st.tabs([
     "📝 ① データ登録・画像アップロード", 
     "🚀 ② 下書き作成・実行", 
     "📂 ③ 履歴の検索・管理", 
-    "📚 ④ テンプレート全文表示" # 新しいタブ
+    "📚 ④ 使用可能日記全文表示" # <--- ここを変更
 ])
 
 # =========================================================
@@ -167,7 +167,7 @@ with tab1:
     
     # **テンプレート参照のセクションを削除し、Tab 4への誘導に置き換え**
     st.subheader("📖 日記使用可能文（コピペ用）")
-    st.info("💡 **コピペ補助**：全画面でテンプレートを表示・コピペする場合は、**「📚 テンプレート全文表示」タブ**をご利用ください。")
+    st.info("💡 **コピペ補助**：全画面でテンプレートを表示・コピペする場合は、**「📚 ④ 使用可能日記全文表示」タブ**をご利用ください。")
     st.markdown("---")
     
     # --- B. 40件の日記データ入力 (常時展開・本文枠大) ---
@@ -202,15 +202,15 @@ with tab1:
             # 1行を構成する列を定義
             cols = st.columns([1, 1, 1, 2, 3, 1, 2]) 
             
-            # --- テキスト入力（コピペしやすいように短く） ---
-            entry['エリア'] = cols[0].text_input("", value=entry['エリア'], key=f"エリア_{i}", placeholder="A-Z", label_visibility="collapsed")
-            entry['店名'] = cols[1].text_input("", value=entry['店名'], key=f"店名_{i}", placeholder="新宿", label_visibility="collapsed")
-            entry['投稿時間'] = cols[2].text_input("", value=entry['投稿時間'], key=f"時間_{i}", placeholder="1530", label_visibility="collapsed")
+            # --- テキスト入力（プレースホルダーを削除） ---
+            entry['エリア'] = cols[0].text_input("", value=entry['エリア'], key=f"エリア_{i}", label_visibility="collapsed") # <--- 削除
+            entry['店名'] = cols[1].text_input("", value=entry['店名'], key=f"店名_{i}", label_visibility="collapsed") # <--- 削除
+            entry['投稿時間'] = cols[2].text_input("", value=entry['投稿時間'], key=f"時間_{i}", label_visibility="collapsed") # <--- 削除
             
             entry['タイトル'] = cols[3].text_area("", value=entry['タイトル'], key=f"タイトル_{i}", height=50, label_visibility="collapsed")
             entry['本文'] = cols[4].text_area("", value=entry['本文'], key=f"本文_{i}", height=100, label_visibility="collapsed") # 本文の枠を大きく
 
-            entry['女の子の名前'] = cols[5].text_input("", value=entry['女の子の名前'], key=f"名_{i}", placeholder="さくら", label_visibility="collapsed")
+            entry['女の子の名前'] = cols[5].text_input("", value=entry['女の子の名前'], key=f"名_{i}", label_visibility="collapsed") # <--- 削除
             
             # --- 画像アップロード ---
             with cols[6]:
@@ -399,7 +399,7 @@ with tab3:
 # =========================================================
 
 with tab4:
-    st.header("4️⃣ テンプレート全文表示・コピペ用")
+    st.header("4️⃣ 使用可能日記全文表示・コピペ用") # <--- ここを変更
 
     try:
         # GSpreadからデータを読み込み
@@ -451,7 +451,7 @@ with tab4:
             st.dataframe(
                 filtered_df[valid_display_cols],
                 use_container_width=True,
-                height='content', # 修正点: height='content' に変更
+                height='content', 
                 hide_index=True,
             )
         
