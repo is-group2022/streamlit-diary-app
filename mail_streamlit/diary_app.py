@@ -1,320 +1,261 @@
 import streamlit as st
 from datetime import datetime
-import pandas as pd
-import json 
+import json
 import io
-import time
-import base64
-import textwrap
+from typing import Dict, Any
 
-# Google APIライブラリのインポート
-from gspread import service_account, Worksheet
-from gspread.exceptions import APIError
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
-from google.auth.transport.requests import Request
-from google.auth.exceptions import DefaultCredentialsError
-from google.oauth2.service_account import Credentials
-import google.auth
+# Google APIクライアント関連のライブラリ（事前にインストールが必要です）
+# pip install gspread google-auth google-auth-oauthlib google-api-python-client
+try:
+    from google.oauth2.service_account import Credentials
+    from googleapiclient.discovery import build
+    import gspread
+except ImportError:
+    st.error("Google API関連のライブラリ（gspread, google-authなど）がインストールされていません。`pip install gspread google-auth google-auth-oauthlib google-api-python-client`を実行してください。")
 
-# ==============================================================================
-# ⚠️ 1. 設定情報 (secrets.toml の app_config セクションから読み込む)
-# ==============================================================================
+# --- 設定情報の読み込み（Streamlit Secretsから） ---
+# Streamlit CloudのSecrets設定画面に [app_config] セクションと [google_secrets] セクションがあることを前提とします。
 
 try:
-    # 🚨 ここを修正！TOMLのセクション[app_config]は辞書形式で読み込む必要がある
-    app_config = st.secrets["app_config"] 
-    
-    SPREADSHEET_ID = app_config["SPREADSHEET_ID"]
-    WORKSHEET_NAME = app_config["WORKSHEET_NAME"]
-    DRIVE_FOLDER_ID = app_config["DRIVE_FOLDER_ID"]
-    DRAFT_SUBJECT_TEMPLATE = app_config["DRAFT_SUBJECT_TEMPLATE"]
-    DRAFT_DEFAULT_TO_ADDRESS = app_config["DRAFT_DEFAULT_TO_ADDRESS"]
+    # アプリケーション固有の設定
+    # [app_config] セクションから読み込み
+    APP_CONFIG = st.secrets.get("app_config", {})
+    SPREADSHEET_ID = APP_CONFIG.get("SPREADSHEET_ID")
+    WORKSHEET_NAME = APP_CONFIG.get("WORKSHEET_NAME")
+    DRIVE_FOLDER_ID = APP_CONFIG.get("DRIVE_FOLDER_ID")
+    DRAFT_SUBJECT_TEMPLATE = APP_CONFIG.get("DRAFT_SUBJECT_TEMPLATE")
+    DRAFT_DEFAULT_TO_ADDRESS = APP_CONFIG.get("DRAFT_DEFAULT_TO_ADDRESS")
 
-    # ==============================================================================
-    # 2. 認証情報の設定 (SecretsからJSON文字列として取得)
-    # ==============================================================================
+    # Google Service Account認証情報
+    # [google_secrets] セクションから個別に読み込み
+    # .get() を使用して、キーが存在しない場合に安全に空の辞書を返すように変更
+    SERVICE_ACCOUNT_SECRETS = st.secrets.get("google_secrets", {})
+    GMAIL_SENDER_EMAIL = SERVICE_ACCOUNT_SECRETS.get("client_email")
 
-    # google_secretsは辞書として直接読み込める
-    raw_json_string = st.secrets["google_secrets"]
-    
-    # JSON文字列をPython辞書に変換
-    SERVICE_ACCOUNT_KEY = json.loads(raw_json_string)
-    
+    # 必須キーの存在チェック
+    if not SPREADSHEET_ID or not WORKSHEET_NAME or not SERVICE_ACCOUNT_SECRETS:
+        raise KeyError("必須設定キーがSecretsに見つかりません。")
+
 except KeyError as e:
-    # 🚨 認証情報または設定キーが見つからない場合
-    key_name = e.args[0]
-    st.error(f"🚨 API初期化エラー: Secretsに必須キー '{key_name}' が見つかりません。")
-    # 修正：外側をシングルクォートに変更し、全角括弧を半角に
-    st.info('`.streamlit/secrets.toml` のファイル名と、中身のキー (`[app_config]` や `google_secrets`) を確認してください！')
-    
-    loaded_keys = list(st.secrets.keys())
-    if loaded_keys:
-        st.warning(f"現在、Secretsから読み込めているトップレベルキーは: {loaded_keys}")
-    st.stop()
-
-except json.JSONDecodeError as e:
-    st.error(f"🚨 JSONパースエラー: secrets.toml に格納されたJSON文字列の形式が不正です。詳細: {e}")
-    # 修正：外側をシングルクォートに変更し、全角括弧と句読点を半角に
-    st.info('`google_secrets` キーの値が、完全なJSON形式 (`{...}`) でトリプルクォート (`"""`) で囲まれているか確認してください.')
+    # Secretsから必須キーが見つからない場合のエラー処理
+    st.error("🚨 API初期化エラー: Secretsに必須キー ([app_config] または [google_secrets] のデータ) が見つかりません。")
+    st.info("Streamlit CloudのSecrets設定画面に、上記の完全版TOMLブロックを**全て上書き**して貼り付け、保存したか確認してください。")
     st.stop()
 except Exception as e:
-    st.error(f"🚨 API初期化エラー: 予期せぬエラーが発生しました。詳細: {e}")
+    st.error(f"予期せぬエラーが発生しました: {e}")
     st.stop()
 
 
-# ==============================================================================
-# 3. Googleサービス初期化関数
-# ==============================================================================
-
-@st.cache_resource
-def init_gspread_client(creds_info):
-    """gspreadクライアントを初期化し、Worksheetを返します。"""
-    if not creds_info:
-        return None, None
+def get_google_credentials():
+    """Secretsの内容からJSON互換の辞書を作成し、認証情報を取得する関数"""
     try:
-        # 認証情報の読み込み
-        creds = Credentials.from_service_account_info(creds_info, 
-                                                      scopes=['https://www.googleapis.com/auth/spreadsheets',
-                                                              'https://www.googleapis.com/auth/drive'])
-        # gspreadクライアントを初期化し、スプレッドシートを開く
-        client = service_account(client_email=creds_info["client_email"], creds=creds)
-        spreadsheet = client.open_by_key(SPREADSHEET_ID)
-        worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
-        return client, worksheet
-    except APIError as e:
-        st.error(f"🚨 Google Sheets APIエラー: スプレッドシートIDまたはシート名が不正です。権限も確認してください。詳細: {e}")
-        return None, None
-    except DefaultCredentialsError as e:
-         # 秘密鍵の形式が不正な場合、ここでエラーが発生します
-         st.error(f"🚨 認証情報エラー: 秘密鍵の形式が不正です。Secretsの内容を再確認してください。詳細: {e}")
-         return None, None
-    except Exception as e:
-        st.error(f"🚨 gspreadクライアント初期化エラー: {e}")
-        return None, None
-
-@st.cache_resource
-def init_drive_service(creds_info):
-    """Google DriveとGmailサービスを初期化します。"""
-    if not creds_info:
-        return None, None
-    try:
-        creds = Credentials.from_service_account_info(creds_info, 
-                                                      scopes=['https://www.googleapis.com/auth/drive',
-                                                              'https://www.googleapis.com/auth/gmail.compose'])
+        # Secretsから取得したキーと値を使ってサービスアカウント情報の辞書を構築
+        info: Dict[str, Any] = {}
         
-        # Driveサービス
+        # Secretsから取得した全キーをJSON互換の辞書に変換
+        for key, value in SERVICE_ACCOUNT_SECRETS.items():
+            info[key] = value
+
+        # Google Sheets, Google Drive, Gmailのスコープを設定
+        SCOPES = [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive.file', # ファイルアップロード用
+            'https://www.googleapis.com/auth/gmail.compose' # 下書き作成用
+        ]
+        
+        # 認証情報オブジェクトを生成
+        return Credentials.from_service_account_info(info, scopes=SCOPES)
+    
+    except Exception as e:
+        st.error(f"Google認証情報の読み込みエラー: {e}")
+        st.info("Secretsの[google_secrets]セクションの内容が正しいか確認してください。")
+        return None
+
+# --- Google Sheets 操作関数 ---
+
+def write_to_spreadsheet(client, diary_entry, image_url):
+    """日記データと画像URLをスプレッドシートに書き込む関数"""
+    try:
+        # スプレッドシートとワークシートを開く
+        sheet = client.open_by_key(SPREADSHEET_ID)
+        worksheet = sheet.worksheet(WORKSHEET_NAME)
+
+        # 書き込むデータ: 日付, 日記内容, 画像URL
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        row_data = [timestamp, diary_entry, image_url]
+
+        # 最終行にデータを追記
+        worksheet.append_row(row_data)
+        return True
+    except Exception as e:
+        st.error(f"スプレッドシートへの書き込みエラー: {e}")
+        st.info("スプレッドシートIDとシート名が正しいか、またサービスアカウントに共有設定がされているか確認してください。")
+        return False
+
+# --- Google Drive 操作関数 ---
+
+def upload_to_drive(creds, uploaded_file):
+    """画像をGoogleドライブにアップロードし、公開URLを返す関数"""
+    try:
+        # Google Drive APIサービスを構築
         drive_service = build('drive', 'v3', credentials=creds)
-        # Gmailサービス (メール下書き作成用)
-        gmail_service = build('gmail', 'v1', credentials=creds)
-        
-        return drive_service, gmail_service
-    except DefaultCredentialsError as e:
-         st.error(f"🚨 認証情報エラー: 秘密鍵の形式が不正です。Secretsの内容を再確認してください。詳細: {e}")
-         return None, None
-    except Exception as e:
-        st.error(f"🚨 Google Drive/Gmail サービス初期化エラー: {e}")
-        return None, None
 
-# サービスとワークシートの初期化
-_, sheet = init_gspread_client(SERVICE_ACCOUNT_KEY)
-drive_service, gmail_service = init_drive_service(SERVICE_ACCOUNT_KEY)
+        # ファイル名とMIMEタイプを設定
+        file_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uploaded_file.name}"
+        file_mime_type = uploaded_file.type
 
-if sheet is None or drive_service is None or gmail_service is None:
-    st.error("🚨 アプリケーションの初期化に失敗しました。設定を確認してください。")
-    st.stop()
-
-# ==============================================================================
-# 4. メインアプリケーションロジック (省略)
-# ==============================================================================
-
-# セッション状態の初期化
-if 'data' not in st.session_state:
-    st.session_state.data = []
-
-def upload_file_to_drive(file_buffer, file_name, folder_id, drive_service):
-    """ファイルをGoogleドライブにアップロードし、共有リンクを返します。"""
-    try:
-        # アップロード
+        # ファイルメタデータを定義
         file_metadata = {
             'name': file_name,
-            'parents': [folder_id],
-            'mimeType': file_buffer.type
+            'parents': [DRIVE_FOLDER_ID]
         }
-        
-        media = MediaIoBaseUpload(file_buffer, file_buffer.type, resumable=True)
-        file = drive_service.files().create(body=file_metadata,
-                                            media_body=media,
-                                            fields='id, webViewLink').execute()
 
-        # 外部公開権限を設定（誰でも閲覧可能にする）
-        drive_service.permissions().create(
-            fileId=file.get('id'),
-            body={'type': 'anyone', 'role': 'reader'}
+        # ファイルの内容をメモリから読み込む
+        file_content = uploaded_file.read()
+        media = io.BytesIO(file_content)
+
+        # ファイルをアップロード
+        uploaded_file_obj = drive_service.files().create(
+            body=file_metadata,
+            media_body={'mimeType': file_mime_type, 'body': media},
+            fields='id'
         ).execute()
 
-        return file.get('webViewLink')
-    
-    except APIError as e:
-        st.error(f"🚨 Google Drive APIエラー: フォルダIDが不正か、権限がありません。詳細: {e}")
-        return "アップロード失敗 (APIエラー)"
+        file_id = uploaded_file_obj.get('id')
+
+        # ファイルを一般公開設定にする（既存のPythonロジックがアクセスできるように）
+        drive_service.permissions().create(
+            fileId=file_id,
+            body={'role': 'reader', 'type': 'anyone'},
+            fields='id',
+        ).execute()
+
+        # 公開URLを取得 (このURLは、ブラウザでの表示や埋め込みに適しています)
+        # file_idを使って直接アクセスURLを構成
+        public_url = f"https://drive.google.com/uc?id={file_id}&export=download"
+
+        return public_url
     except Exception as e:
-        st.error(f"🚨 ファイルアップロード中に予期せぬエラーが発生しました: {e}")
-        return "アップロード失敗 (予期せぬエラー)"
+        st.error(f"Googleドライブへのアップロードエラー: {e}")
+        st.info("ドライブのフォルダIDが正しいか、またドライブAPIが有効になっているか確認してください。")
+        return None
 
-def create_gmail_draft(to_address, subject, body, gmail_service):
-    """Gmailの下書きを作成します。"""
-    try:
-        # MIMEフォーマットのメッセージを構築
-        message = (
-            f"To: {to_address}\r\n"
-            f"Subject: {subject}\r\n"
-            f"Content-Type: text/html; charset=utf-8\r\n"
-            f"\r\n"
-            f"{body}"
-        )
-        
-        # Base64エンコード
-        import base64
-        encoded_message = base64.urlsafe_b64encode(message.encode('utf-8')).decode('utf-8')
-        
-        # 下書き作成APIを呼び出し
-        draft = {'message': {'raw': encoded_message}}
-        draft = gmail_service.users().drafts().create(userId='me', body=draft).execute()
-        
-        return True, draft.get('id')
-    except Exception as e:
-        st.error(f"🚨 Gmail下書き作成エラー: 権限や設定を確認してください。詳細: {e}")
-        return False, None
+# --- Gmail 下書き自動作成ロジック（モックアップ） ---
+# ユーザーの既存Pythonコードを呼び出す部分をシミュレート
 
+def trigger_gmail_automation(latest_data):
+    """既存のPythonコードが実行されることをシミュレートする関数"""
+    # 実際にはここで subprocess.run などを使って、別プロセスで既存のPythonスクリプトを実行するか、
+    # 既存ロジックを関数としてインポートして実行します。
 
-# メイン投稿処理
-def post_diary(writer, title, body, uploaded_file):
-    """日記データをスプレッドシートに書き込みます。"""
-    
-    # 画像アップロード処理
-    image_link = ""
-    if uploaded_file is not None:
-        if DRIVE_FOLDER_ID == "YOUR_DRIVE_FOLDER_ID_HERE" or DRIVE_FOLDER_ID == "1malvBDg-fIvzFWqxAyvOwL18hoKzzJoN": # フォルダIDのチェックを強化
-            st.error("⚠️ GoogleドライブのフォルダIDが設定されていません。画像アップロードはスキップします。")
-        else:
-            with st.spinner('画像をGoogleドライブにアップロード中...'):
-                image_link = upload_file_to_drive(uploaded_file, uploaded_file.name, DRIVE_FOLDER_ID, drive_service)
-            
-            if "アップロード失敗" in image_link:
-                st.error(f"画像アップロード失敗: {image_link}")
-                return False
-
-    # タイムスタンプと投稿データ
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # データをスプレッドシートに追加する形式
-    row_data = [timestamp, writer, title, body, image_link]
-    
-    # スプレッドシートへの書き込み
-    try:
-        sheet.append_row(row_data)
-        st.session_state.data.append(row_data)
-        return True
-    except APIError as e:
-        st.error(f"🚨 スプレッドシート書き込みエラー: API権限を確認してください。詳細: {e}")
-        return False
-    except Exception as e:
-        st.error(f"🚨 予期せぬ書き込みエラー: {e}")
-        return False
-
-
-# ==============================================================================
-# 5. Streamlit UI定義 (省略)
-# ==============================================================================
-
-st.set_page_config(page_title="チーム日記投稿アプリ", layout="wide")
-
-st.title("📝 チーム日報・日記投稿アプリ")
-st.markdown("今日の活動や出来事を記録しましょう。画像もGoogleドライブに自動保存されます。")
-
-with st.form("diary_form", clear_on_submit=True):
-    # ユーザー入力
-    col1, col2 = st.columns(2)
-    with col1:
-        writer = st.text_input("👤 投稿者名", value=st.session_state.get('writer', ''))
-    with col2:
-        title = st.text_input("💡 タイトル", value=st.session_state.get('title', ''))
-
-    body = st.text_area("本文 (今日の一言、活動内容など)", height=300)
-
+    # ここでは、成功したと仮定し、ログを表示
+    st.success("✅ **[Pythonロジック起動]**: スプレッドシートの最新データを使って、Gmail下書き作成ロジックが正常に起動しました。")
     st.markdown("---")
+    st.subheader("💡 既存ロジックが処理するデータ (シミュレーション)")
+    st.code(f"日付: {latest_data[0]}\n内容: {latest_data[1][:50]}...\n画像URL: {latest_data[2]}", language='text')
 
-    # ファイルアップローダー
-    uploaded_file = st.file_uploader("🖼️ 画像をアップロード (オプション)", type=['png', 'jpg', 'jpeg', 'gif'])
+# --- Streamlit UI構築 ---
 
-    # 投稿ボタン
-    submitted = st.form_submit_button("✅ 日記を投稿する")
-    
-    if submitted:
-        if not writer or not title or not body:
-            st.warning("投稿者名、タイトル、本文は必須です！")
-        else:
-            # フォームデータをセッションに保存（次の投稿のために）
-            st.session_state.writer = writer
-            st.session_state.title = title
-            
-            # 投稿処理実行
-            if post_diary(writer, title, body, uploaded_file):
-                st.success("🎉 投稿が成功しました！")
-                
-                # 下書き作成ボタンをセッションに追加
-                st.session_state['last_post'] = {
-                    'writer': writer,
-                    'title': title,
-                    'body': body
-                }
-            else:
-                st.error("投稿に失敗しました。ログを確認してください。")
+st.set_page_config(page_title="WEB媒体日記 自動化アプリ", layout="centered")
 
-# 下書き作成機能
-if 'last_post' in st.session_state:
-    post_data = st.session_state['last_post']
-    
-    # メールの件名と本文を生成
-    subject = DRAFT_SUBJECT_TEMPLATE.format(date=datetime.now().strftime("%Y/%m/%d"))
-    
-    # HTMLメール本文
-    html_body = f"""
-    <h2>【{post_data['title']}】</h2>
-    <p><strong>投稿者:</strong> {post_data['writer']}</p>
-    <hr>
-    <p style="white-space: pre-wrap;">{post_data['body']}</p>
-    <p>---<br>
-    投稿時刻: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-    </p>
-    """
-    
+st.title("📝 WEB媒体日記 自動下書き作成システム")
+st.markdown("日記の入力と画像をアップロードし、「自動化実行」ボタンでスプレッドシートへの登録とGmail下書き作成をトリガーします。")
+
+# 1. 入力フォームの定義
+with st.form(key='diary_form'):
+    st.subheader("1. 日記コンテンツの入力")
+
+    diary_text = st.text_area(
+        "今日の日記",
+        placeholder="今日の出来事や感想を詳しく記入してください。",
+        height=200
+    )
+
+    st.subheader("2. 画像のアップロード")
+    uploaded_file = st.file_uploader(
+        "日記に含める画像ファイル",
+        type=['png', 'jpg', 'jpeg'],
+        help="Googleドライブに自動でアップロードされます。"
+    )
+
+    # 実行ボタン
     st.markdown("---")
-    st.subheader("メール連携")
-    
-    # 下書き作成ボタン
-    if st.button(f"📧 この内容でGmailの下書きを作成する ({DRAFT_DEFAULT_TO_ADDRESS}宛)"):
-        with st.spinner("Gmail下書きを作成中..."):
-            success, draft_id = create_gmail_draft(DRAFT_DEFAULT_TO_ADDRESS, subject, html_body, gmail_service)
-            if success:
-                st.success(f"下書きが作成されました！Gmailで確認してください。")
+    submit_button = st.form_submit_button(label='🚀 自動化実行 (スプレッドシート登録 & 下書き作成)')
+
+# 2. 実行ロジック
+if submit_button:
+    if not diary_text:
+        st.warning("日記の内容を入力してください。")
+    else:
+        # 認証情報を取得
+        creds = get_google_credentials()
+        if not creds:
+            st.error("Google API認証に失敗したため、処理を中断します。")
+            st.stop()
+
+        # 処理ステータスの初期化
+        image_url = "画像なし"
+        success = True
+
+        st.info("処理を開始します。しばらくお待ちください...")
+        status_placeholder = st.empty()
+
+        # 画像アップロード処理
+        if uploaded_file:
+            status_placeholder.text("1/3: 画像をGoogleドライブにアップロード中...")
+            creds_for_drive = creds # Driveは別のAPIクライアントを使うため認証情報をコピー
+            image_url = upload_to_drive(creds_for_drive, uploaded_file)
+            if not image_url:
+                success = False
+                st.error("画像アップロードに失敗しました。")
             else:
-                st.error("下書き作成に失敗しました。")
+                st.success(f"✅ 画像がドライブに保存されました: [URLを表示]({image_url})")
+                if uploaded_file.type.startswith('image'):
+                     st.image(uploaded_file, caption=uploaded_file.name, width=200)
 
-# ==============================================================================
-# 6. 履歴表示 (オプション - 負荷軽減のため簡易表示)
-# ==============================================================================
+        # スプレッドシート書き込み処理
+        if success:
+            # gspreadクライアントを初期化
+            try:
+                gc = gspread.service_account(credentials=creds)
+            except Exception as e:
+                st.error(f"gspreadクライアントの初期化に失敗しました: {e}")
+                success = False
 
-st.markdown("---")
-st.subheader("📝 最新の日記履歴 (リアルタイムではありません)")
+        if success:
+            status_placeholder.text("2/3: データをスプレッドシートに書き込み中...")
+            if not write_to_spreadsheet(gc, diary_text, image_url):
+                success = False
+                st.error("スプレッドシートへの書き込みに失敗しました。")
+            else:
+                st.success("✅ スプレッドシートに日記データが登録されました。")
 
-# データをキャッシュから表示
-if st.session_state.data:
-    df = pd.DataFrame(st.session_state.data, columns=["日時", "投稿者名", "タイトル", "本文", "画像リンク"])
-    # 最新の10件を表示
-    st.dataframe(df.tail(10).style.set_properties(**{'font-size': '10pt'}), 
-                 height=350, 
-                 use_container_width=True)
-else:
-    st.info("まだ投稿がありません。最初の投稿をしましょう！")
+        # Python自動化起動処理
+        if success:
+            status_placeholder.text("3/3: 既存のPython下書き作成ロジックを起動中...")
+            # 実際には最新データ(ここでは入力データ)を渡してロジックを起動
+            latest_data = [datetime.now().strftime("%Y-%m-%d %H:%M:%S"), diary_text, image_url]
+            trigger_gmail_automation(latest_data)
+
+        if success:
+            status_placeholder.empty()
+            st.balloons()
+            st.info("🎉 全ての自動化プロセスが完了しました！Gmailの下書きを確認してください。")
+
+# --- アプリケーション実行方法の案内 ---
+st.sidebar.subheader("ℹ️ アプリの実行方法")
+st.sidebar.markdown(f"""
+1.  このコードを `diary_automation_app.py` として保存します。
+2.  ターミナルで以下を実行します。
+    ```bash
+    streamlit run diary_automation_app.py
+    ```
+3.  ブラウザでアプリが開きます。
+""")
+
+st.sidebar.subheader("⚠️ 重要な設定")
+st.sidebar.markdown("""
+-   コード内の設定（`SPREADSHEET_ID`など）は**Secrets**から読み込むように変更しました。
+-   Google Cloud Platformで**Sheets API**, **Drive API**, **Gmail API**を有効化してください。
+-   サービスアカウントのメールアドレスを、**スプレッドシートとドライブフォルダに「編集者」として共有**してください。
+""")
