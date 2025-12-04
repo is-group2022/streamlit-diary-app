@@ -3,8 +3,12 @@ import pandas as pd
 import gspread
 from io import BytesIO
 import time 
-from datetime import datetime
 import traceback 
+# --- Drive API 連携に必要なライブラリを追加 ---
+from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
+# -----------------------------------------------
 
 # --- 1. 定数と初期設定 ---
 try:
@@ -21,6 +25,12 @@ try:
     # プルダウンの選択肢
     MEDIA_OPTIONS = ["駅ちか", "デリじゃ"]
     ACCOUNT_OPTIONS = ["A", "B", "SUB"]
+    
+    # APIスコープをSheetsとDriveの両方に設定
+    SCOPES = [
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive'
+    ]
 
 except KeyError:
     st.error("🚨 GoogleリソースIDまたはシート名がsecrets.tomlに正しく設定されていません。")
@@ -54,23 +64,74 @@ def connect_to_gsheets():
 SPRS = connect_to_gsheets()
 
 
+@st.cache_resource(ttl=3600)
+def connect_to_drive():
+    """Google Drive API クライアントを初期化する"""
+    try:
+        # st.secretsからサービスアカウント情報をロード
+        creds_info = st.secrets["gcp_service_account"]
+        
+        # 認証情報オブジェクトを作成
+        creds = Credentials.from_service_account_info(
+            creds_info, 
+            scopes=SCOPES
+        )
+        
+        # Drive API サービスをビルド
+        service = build('drive', 'v3', credentials=creds)
+        return service
+    except Exception as e:
+        st.error(f"❌ Google Drive API への接続に失敗しました: {e}")
+        st.stop()
+
+# Drive APIクライアントを初期化
+try:
+    DRIVE_SERVICE = connect_to_drive()
+except SystemExit:
+    # connect_to_drive内でst.stop()が呼ばれた場合、ここで捕捉
+    pass
+
+
 def drive_upload(uploaded_file, file_name, folder_id=DRIVE_FOLDER_ID):
     """
-    Google Driveへファイルをアップロードし、ファイルIDを返す関数。
-    ※ この関数は Drive API の処理をシミュレートしています。
+    Google Driveへファイルをアップロードし、ファイルIDを返す関数。（実際のAPI処理）
     """
     if uploaded_file is None:
         return None
 
-    # 実際の Drive API 処理はここに実装されます
-    time.sleep(0.1) 
-    
-    # アップロード後のファイル ID をシミュレート
-    simulated_file_id = f"DRIVE_ID_{file_name}_{int(time.time())}"
-    
-    st.caption(f"  [ドライブ格納] -> **ファイル名: {file_name}** (ID: {simulated_file_id})")
-    
-    return simulated_file_id
+    try:
+        # ファイルの内容をメモリに読み込む
+        file_content = uploaded_file.getvalue()
+        
+        # StreamlitのUploadedFileオブジェクトからファイルストリームを作成
+        media_body = MediaIoBaseUpload(
+            BytesIO(file_content),
+            mimetype=uploaded_file.type,
+            resumable=True
+        )
+
+        # ファイルメタデータ
+        file_metadata = {
+            'name': file_name,
+            'parents': [folder_id],  # アップロード先のフォルダID
+        }
+
+        # アップロード実行
+        file = DRIVE_SERVICE.files().create(
+            body=file_metadata,
+            media_body=media_body,
+            fields='id'
+        ).execute()
+
+        file_id = file.get('id')
+        
+        st.caption(f"  [ドライブ格納成功] -> **ファイル名: {file_name}** (ID: {file_id})")
+        
+        return file_id
+        
+    except Exception as e:
+        st.error(f"❌ Driveへのアップロード中にエラーが発生しました: {e}")
+        return None
 
 
 # --- 3. 実行ロジック (プレースホルダー関数) ---
@@ -95,7 +156,7 @@ def run_step_5_move_to_history():
 # テーマ設定と初期化
 st.set_page_config(
     layout="wide", 
-    page_title="写メ日記投稿管理アプリ", # <--- ここを変更
+    page_title="写メ日記投稿管理アプリ",
     initial_sidebar_state="collapsed", 
     menu_items={'About': "日記投稿のための効率化アプリです。"}
 )
@@ -112,7 +173,7 @@ st.markdown("""
 }
 /* ヘッダーのフォントを装飾 */
 h1 {
-    color: #4CAF50; /* 少し落ち着いた緑 */
+    color: #4CAF50; 
     text-shadow: 2px 2px 4px #aaa;
     border-bottom: 3px solid #E0F7FA;
     padding-bottom: 5px;
@@ -120,7 +181,7 @@ h1 {
 }
 /* サブヘッダーの強調 */
 h3 {
-    color: #00897B; /* 濃い目のティール */
+    color: #00897B; 
     border-left: 5px solid #00897B;
     padding-left: 10px;
     margin-top: 30px;
@@ -135,7 +196,7 @@ h3 {
 """, unsafe_allow_html=True)
 
 
-st.title("✨ 写メ日記投稿管理アプリ - Daily Posting Manager") # <--- ここを変更
+st.title("✨ 写メ日記投稿管理アプリ - Daily Posting Manager")
 
 # --- セッションステートの初期化 ---
 if 'diary_entries' not in st.session_state:
@@ -150,11 +211,11 @@ if 'global_account' not in st.session_state:
     st.session_state.global_account = ACCOUNT_OPTIONS[0]
 
 
-# タブの定義を4つに変更 
+# タブの定義
 tab1, tab2, tab3, tab4 = st.tabs([
     "📝 ① データ登録・画像アップロード", 
     "🚀 ② 下書き作成・実行", 
-    "📂 ③ 自動投稿データの検索・管理", # <--- ここを変更
+    "📂 ③ 自動投稿データの検索・管理", 
     "📚 ④ 使用可能日記全文表示" 
 ])
 
@@ -165,7 +226,6 @@ tab1, tab2, tab3, tab4 = st.tabs([
 with tab1:
     st.header("1️⃣ データ準備・入力")
     
-    # **テンプレート参照のセクションを削除し、Tab 4への誘導に置き換え**
     st.subheader("📖 日記使用可能文（コピペ用）")
     st.info("💡 **コピペ補助**：全画面でテンプレートを表示・コピペする場合は、**「📚 ④ 使用可能日記全文表示」タブ**をご利用ください。")
     st.markdown("---")
@@ -202,13 +262,13 @@ with tab1:
             # 1行を構成する列を定義
             cols = st.columns([1, 1, 1, 2, 3, 1, 2]) 
             
-            # --- テキスト入力（プレースホルダーを削除済み） ---
+            # --- テキスト入力（プレースホルダー削除済み） ---
             entry['エリア'] = cols[0].text_input("", value=entry['エリア'], key=f"エリア_{i}", label_visibility="collapsed") 
             entry['店名'] = cols[1].text_input("", value=entry['店名'], key=f"店名_{i}", label_visibility="collapsed") 
             entry['投稿時間'] = cols[2].text_input("", value=entry['投稿時間'], key=f"時間_{i}", label_visibility="collapsed") 
             
             entry['タイトル'] = cols[3].text_area("", value=entry['タイトル'], key=f"タイトル_{i}", height=50, label_visibility="collapsed")
-            entry['本文'] = cols[4].text_area("", value=entry['本文'], key=f"本文_{i}", height=100, label_visibility="collapsed") # 本文の枠を大きく
+            entry['本文'] = cols[4].text_area("", value=entry['本文'], key=f"本文_{i}", height=100, label_visibility="collapsed")
 
             entry['女の子の名前'] = cols[5].text_input("", value=entry['女の子の名前'], key=f"名_{i}", label_visibility="collapsed") 
             
@@ -226,7 +286,7 @@ with tab1:
                 if entry['画像ファイル']:
                     st.caption(f"💾 {entry['画像ファイル'].name}")
 
-            st.markdown("---") # 行間の区切りを強調
+            st.markdown("---") 
             
         # フォームの送信ボタン（データ登録実行）
         submitted = st.form_submit_button("🔥 登録データと画像を Google Sheets/Drive に格納して実行準備完了", type="primary")
@@ -250,6 +310,9 @@ with tab1:
             uploaded_file_data = []
             
             for i, entry in enumerate(valid_entries_and_files):
+                # 画像の有無にかかわらず、ファイル名生成とアップロード処理を試行
+                
+                # 画像がある場合のみ Drive にアップロード
                 if entry['画像ファイル']:
                     hhmm = entry['投稿時間'].strip() 
                     girl_name = entry['女の子の名前'].strip()
@@ -261,8 +324,10 @@ with tab1:
                     ext = entry['画像ファイル'].name.split('.')[-1]
                     new_filename = f"{hhmm}_{girl_name}.{ext}"
 
+                    # 実際の Drive API を呼び出す
                     file_id = drive_upload(entry['画像ファイル'], new_filename)
-                    uploaded_file_data.append({'row_index': i, 'file_id': file_id})
+                    if file_id:
+                        uploaded_file_data.append({'row_index': i, 'file_id': file_id})
                 else:
                     st.warning(f"No. {i+1} は画像なしでテキストのみ登録されます。")
             
@@ -279,7 +344,8 @@ with tab1:
                         entry['投稿時間'], entry['女の子の名前'], entry['タイトル'],
                         entry['本文'], st.session_state.global_account 
                     ]
-                    row_data.extend(['未実行', '未実行', '未実行']) 
+                    # I, J, K 列は空白で追加する (修正済み)
+                    row_data.extend(['', '', '']) 
                     final_data.append(row_data)
 
                 ws.append_rows(final_data, value_input_option='USER_ENTERED')
@@ -343,7 +409,7 @@ with tab2:
 # =========================================================
 
 with tab3:
-    st.header("3️⃣ 自動投稿データの検索・管理") # <--- ここを変更
+    st.header("3️⃣ 自動投稿データの検索・管理")
     
     try:
         df_history = pd.DataFrame(SPRS.worksheet(HISTORY_SHEET).get_all_records())
@@ -354,7 +420,7 @@ with tab3:
     st.markdown("---")
 
     # --- A. 履歴データの検索と修正 (機能 B: Gmail連動修正) ---
-    st.subheader("🔍 投稿データの修正") # <--- ここを変更
+    st.subheader("🔍 投稿データの修正")
     
     if not df_history.empty:
         edited_history_df = st.data_editor(
@@ -395,7 +461,7 @@ with tab3:
 
 
 # =========================================================
-# --- Tab 4: テンプレート全文表示 (New!) ---
+# --- Tab 4: テンプレート全文表示 ---
 # =========================================================
 
 with tab4:
@@ -423,7 +489,6 @@ with tab4:
             if '日記種類' in df_templates.columns:
                 type_options.extend(df_templates['日記種類'].unique().tolist())
             with col_type:
-                # キーを 't4_' に変更して他のタブと競合しないようにする
                 selected_type = st.selectbox("日記種類", type_options, key='t4_type') 
             
             # シートに「タイプ種類」列が存在するか確認してからselectboxのオプションを作成
