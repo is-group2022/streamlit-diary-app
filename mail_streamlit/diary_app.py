@@ -26,7 +26,7 @@ REGISTRATION_HEADERS = [
     "エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文", "担当アカウント", 
     "下書き登録確認", "画像添付確認", "宛先登録確認" 
 ]
-INPUT_HEADERS = REGISTRATION_HEADERS[:8] # ユーザーが手動で入力する8項目
+INPUT_HEADERS = REGISTRATION_HEADERS[:8] 
 
 # プルダウンの選択肢
 MEDIA_OPTIONS = ["駅ちか", "デリじゃ"]
@@ -42,7 +42,6 @@ def connect_to_gsheets():
         spreadsheet = client.open_by_key(SHEET_ID)
         return spreadsheet
     except Exception as e:
-        # 認証エラーが解決したことを確認済み
         st.error(f"❌ Google Sheets への接続に失敗しました: {e}")
         st.stop()
         
@@ -52,7 +51,6 @@ SPRS = connect_to_gsheets()
 def drive_upload(uploaded_file, file_name, folder_id=DRIVE_FOLDER_ID):
     """
     Google Driveへファイルをアップロードし、ファイルIDを返す関数。
-    認証には gspread と共通のサービスアカウント認証情報を使用します。
     ※ この関数は Drive API の処理をシミュレートしています。
     """
     if uploaded_file is None:
@@ -61,10 +59,8 @@ def drive_upload(uploaded_file, file_name, folder_id=DRIVE_FOLDER_ID):
     # 実際はここで Drive API 処理
     time.sleep(0.5) 
     
-    # アップロード後のファイル ID をシミュレートして返す (本物のIDではない)
     simulated_file_id = f"DRIVE_ID_{file_name}_{int(time.time())}"
     
-    # ファイル名表示をキャプションで表示
     st.caption(f"  [ドライブ格納] -> **ファイル名: {file_name}** (ID: {simulated_file_id})")
     
     return simulated_file_id
@@ -76,7 +72,6 @@ def run_step(step_num, action_desc, sheet_name=REGISTRATION_SHEET):
     """実行ステップのシミュレーションとシート更新のプレースホルダー"""
     st.info(f"🔄 Step {step_num}: {action_desc}を実行中...")
     time.sleep(2) 
-    # 実際にはここで外部ロジックを実行し、シートのステータス列を更新します。
     st.success(f"✅ Step {step_num}: {action_desc}が完了しました。")
     return True
 
@@ -84,7 +79,6 @@ def run_step_5_move_to_history():
     """Step 5: 履歴へ移動（新規機能）"""
     st.info("🔄 Step 5: 実行済みデータを履歴シートへ移動中...")
     time.sleep(3) 
-    # ここに Sheets API を使用した行移動ロジックを実装
     st.success("✅ Step 5: 実行済みデータが履歴シートへ移動・削除されました。")
 
 # --- 4. Streamlit UI 構築 ---
@@ -94,13 +88,11 @@ st.title("📝 日記投稿管理 Web アプリ")
 
 # --- セッションステートの初期化 ---
 if 'diary_entries' not in st.session_state:
-    # プルダウンの初期値は選択肢の最初の値に設定
     initial_entry = {header: "" for header in INPUT_HEADERS}
     initial_entry['媒体'] = MEDIA_OPTIONS[0]
     initial_entry['担当アカウント'] = ACCOUNT_OPTIONS[0]
     initial_entry['画像ファイル'] = None 
     
-    # 40件分の入力枠を準備
     st.session_state.diary_entries = [initial_entry.copy() for _ in range(40)]
 
 tab1, tab2, tab3 = st.tabs(["① データ登録・画像アップロード", "② 下書き作成・実行", "③ 履歴の検索・修正・管理"])
@@ -112,8 +104,11 @@ tab1, tab2, tab3 = st.tabs(["① データ登録・画像アップロード", "�
 with tab1:
     st.header("1️⃣ データ登録とテンプレート参照")
     
-    # --- A. テンプレート参照 (使用可日記データ) ---
-    st.subheader("💡 テンプレート参照（コピペ用）")
+    # --- A. テンプレート参照 (別ページ化の案内を含む) ---
+    st.subheader("💡 日記使用可能文（コピペ用）")
+    
+    st.info("💡 **アドバイス**: この表を別ウィンドウで開くには、**Streamlit アプリをマルチページ構成にする必要があります。** 現在は同じタブ内に表示します。")
+
     try:
         df_templates = pd.DataFrame(SPRS.worksheet(USABLE_DIARY_SHEET).get_all_records())
         
@@ -144,14 +139,14 @@ with tab1:
 
     st.markdown("---")
     
-    # --- B. 40件の日記データ入力 (行ごとのアップロード) ---
+    # --- B. 40件の日記データ入力 (常時展開・本文枠大) ---
     st.subheader("2️⃣ 登録用データ入力と画像アップロード (40件)")
-    st.warning("⚠️ **画像をアップロードする際は、その行の「女の子の名前」と「投稿時間」を必ず入力してください。** ファイル名に使用されます。")
+    st.warning("⚠️ 画像をアップロードする際は、その行の**「投稿時間 (hhmm)」**と**「女の子の名前」**を必ず入力してください。ファイル名に使用されます。")
 
     with st.form("diary_registration_form"):
         
         # ヘッダー行 (視認性向上のため手動で配置)
-        col_header = st.columns([1, 1, 1, 1, 2, 2, 1, 1.5, 2])
+        col_header = st.columns([1, 1, 1, 1, 2, 3, 1, 1.5, 2]) # 本文の幅を拡張 (2->3)
         col_header[0].markdown("**エリア**")
         col_header[1].markdown("**店名**")
         col_header[2].markdown("**投稿時間**")
@@ -162,14 +157,14 @@ with tab1:
         col_header[7].markdown("**担当**")
         col_header[8].markdown("📷 **画像アップロード**")
 
-        st.markdown("---") # ヘッダーとデータ行を分離
+        st.markdown("---") 
         
         # 40行分の入力と画像アップロードをループで生成
         for i in range(len(st.session_state.diary_entries)):
             entry = st.session_state.diary_entries[i]
             
             # 1行を構成する列を定義
-            cols = st.columns([1, 1, 1, 1, 2, 2, 1, 1.5, 2])
+            cols = st.columns([1, 1, 1, 1, 2, 3, 1, 1.5, 2]) # 本文の幅を拡張 (2->3)
             
             # --- テキスト入力（コピペしやすいように短く） ---
             entry['エリア'] = cols[0].text_input("エリア", value=entry['エリア'], key=f"エリア_{i}", label_visibility="collapsed")
@@ -179,9 +174,10 @@ with tab1:
             # 媒体プルダウン
             entry['媒体'] = cols[3].selectbox("媒体", MEDIA_OPTIONS, index=MEDIA_OPTIONS.index(entry['媒体']) if entry['媒体'] in MEDIA_OPTIONS else 0, key=f"媒体_{i}", label_visibility="collapsed")
 
+            # タイトルと本文のサイズ調整
             entry['タイトル'] = cols[4].text_area("タイトル", value=entry['タイトル'], key=f"タイトル_{i}", height=50, label_visibility="collapsed")
-            entry['本文'] = cols[5].text_area("本文", value=entry['本文'], key=f"本文_{i}", height=50, label_visibility="collapsed")
-            
+            entry['本文'] = cols[5].text_area("本文", value=entry['本文'], key=f"本文_{i}", height=100, label_visibility="collapsed") # 本文の枠を大きく
+
             entry['女の子の名前'] = cols[6].text_input("女の子名", value=entry['女の子の名前'], key=f"名_{i}", label_visibility="collapsed")
             
             # 担当アカウントプルダウン
@@ -196,7 +192,6 @@ with tab1:
                     label_visibility="collapsed"
                 )
                 
-                # セッションステートにファイルを保存
                 entry['画像ファイル'] = uploaded_file
                 
                 if entry['画像ファイル']:
@@ -210,9 +205,7 @@ with tab1:
         if submitted:
             valid_entries_and_files = []
             
-            # データが一つでも入力されている行を抽出し、ファイル名を処理
             for entry in st.session_state.diary_entries:
-                # ユーザー入力8項目のうち、何か一つでも入力があれば有効とする
                 is_data_filled = any(entry.get(h) and entry.get(h) != "" for h in INPUT_HEADERS)
                 
                 if is_data_filled:
@@ -228,23 +221,19 @@ with tab1:
             
             for i, entry in enumerate(valid_entries_and_files):
                 if entry['画像ファイル']:
-                    # ファイル名生成: hhmm_女の子の名前
-                    hhmm = entry['投稿時間'].strip() # 投稿時間を使用
+                    hhmm = entry['投稿時間'].strip() 
                     girl_name = entry['女の子の名前'].strip()
                     
                     if not hhmm or not girl_name:
                          st.error(f"❌ No. {i+1} の画像ファイル名を作成できません。投稿時間 ({hhmm}) と女の子の名前 ({girl_name}) を確認してください。")
-                         continue # 次の行へスキップ
+                         continue
                          
-                    # 拡張子を取得
                     ext = entry['画像ファイル'].name.split('.')[-1]
                     new_filename = f"{hhmm}_{girl_name}.{ext}"
 
-                    # Drive API を使ってファイルをアップロード (シミュレーション)
                     file_id = drive_upload(entry['画像ファイル'], new_filename)
                     uploaded_file_data.append({'row_index': i, 'file_id': file_id})
                 else:
-                    # 画像がない場合もテキストデータは登録される
                     st.warning(f"No. {i+1} のデータはテキストのみ登録されます。")
             
             st.success(f"✅ 画像 {len(uploaded_file_data)}枚を Google Drive へ格納しました。")
@@ -255,13 +244,10 @@ with tab1:
                 
                 final_data = []
                 for entry in valid_entries_and_files:
-                    # ユーザー入力8項目をリスト化
                     row_data = [entry[h] for h in INPUT_HEADERS]
-                    # ステータス列（'未実行'）3項目を追加
                     row_data.extend(['未実行', '未実行', '未実行']) 
                     final_data.append(row_data)
 
-                # シートの末尾に追加
                 ws.append_rows(final_data, value_input_option='USER_ENTERED')
                 
                 st.success(f"🎉 **{len(valid_entries_and_files)}件**のテキストデータ登録が完了しました。")
@@ -272,7 +258,7 @@ with tab1:
 
 
 # =========================================================
-# --- Tab 2: 下書き作成・実行 (中略) ---
+# --- Tab 2: 下書き作成・実行 ---
 # =========================================================
 
 with tab2:
@@ -298,7 +284,6 @@ with tab2:
 
     st.subheader("👀 登録データの実行状況")
     try:
-        # 最新のデータを再読み込み
         df_status = pd.DataFrame(SPRS.worksheet(REGISTRATION_SHEET).get_all_records())
         st.dataframe(df_status, use_container_width=True, hide_index=True)
     except Exception:
@@ -313,7 +298,7 @@ with tab2:
 
 
 # =========================================================
-# --- Tab 3: 履歴の検索・修正・管理 (中略) ---
+# --- Tab 3: 履歴の検索・修正・管理 ---
 # =========================================================
 
 with tab3:
