@@ -4,7 +4,8 @@ from gspread import Client, Worksheet
 from google.oauth2.service_account import Credentials
 from typing import Dict, Any
 import logging
-import base64 # 今回はBASE64は使わないが、念のためimportを残す
+import base64 
+import re # 正規表現モジュールをインポート
 
 # ログレベルの設定（デバッグ用）
 logging.basicConfig(level=logging.INFO)
@@ -45,21 +46,20 @@ def get_gspread_client() -> Client:
         try:
             pk_content = info['private_key_raw']
             
-            # BEGIN PRIVATE KEYの直後と、その後の文字列を区切る位置に改行文字 '\n' を手動で挿入します。
-            # さらに、64文字ごとに改行を挿入して、元のファイル形式に近づけます。
+            # --- 最終修正：文字列のクリーンアップを追加 ---
             
-            # 1. ヘッダーとフッターを処理
-            pk_content = pk_content.replace('-----BEGIN PRIVATE KEY-----', '-----BEGIN PRIVATE KEY-----\n')
-            pk_content = pk_content.replace('-----END PRIVATE KEY-----', '\n-----END PRIVATE KEY-----\n')
+            # 1. Base64文字列の本体を抽出するためにヘッダーとフッターを削除し、改行・スペース・制御文字を全て除去
+            pk_content = pk_content.replace('-----BEGIN PRIVATE KEY-----', '')
+            pk_content = pk_content.replace('-----END PRIVATE KEY-----', '')
             
-            # 2. 鍵本体の行の途中に含まれるスペースを削除
-            pk_content = pk_content.replace(' ', '')
+            # Base64文字以外のすべて（スペース、タブ、改行など）を削除
+            # gspread/google-authが期待する形式（改行を挟んだ形式）に戻す
+            key_body_clean = re.sub(r'[^\w+/=]', '', pk_content) 
             
-            # 3. 鍵本体（Base64部分）を64文字ごとに改行する (最初のヘッダーと最後のフッターを無視)
-            key_body = pk_content.split('\n')[1]
-            reformatted_key_body = '\n'.join([key_body[i:i+64] for i in range(0, len(key_body), 64)])
+            # 64文字ごとに改行を挿入して、元のPEM形式（改行あり）に復元
+            reformatted_key_body = '\n'.join([key_body_clean[i:i+64] for i in range(0, len(key_body_clean), 64)])
             
-            # 4. 全体を結合
+            # 全体を結合
             pk_reformatted = "-----BEGIN PRIVATE KEY-----\n" + reformatted_key_body + "\n-----END PRIVATE KEY-----\n"
             
             # 認証クライアントが期待する private_key キーに設定
@@ -85,7 +85,9 @@ def get_gspread_client() -> Client:
         # 認証情報の内容を表示してデバッグを容易にする (private_keyは表示しない)
         debug_info = info.copy()
         if 'private_key' in debug_info:
-            debug_info['private_key'] = debug_info['private_key'][:50] + "..."
+            # private_keyは長いため、最初の50文字と最後の50文字のみ表示
+            pk = debug_info['private_key']
+            debug_info['private_key'] = pk[:50] + "..." + pk[-50:]
             
         st.error(f"Google認証情報の初期化に失敗しました。Secretsの内容が正しいか確認してください。エラー詳細: {e}")
         st.code(debug_info) 
@@ -102,7 +104,7 @@ try:
     st.success("🎉 Google認証とスプレッドシートへの接続に成功しました！")
 except Exception as e:
     st.title("認証エラー")
-    st.warning("上記のエラーメッセージを参照してください。Secretsの設定が原因の可能性が高いです。")
+    st.warning("上記のエラーメッセージを参照してください。Secretsの設定または権限が原因の可能性があります。")
     st.stop() # 接続に失敗した場合はアプリの実行を停止
 
 # --- アプリケーションのUI ---
