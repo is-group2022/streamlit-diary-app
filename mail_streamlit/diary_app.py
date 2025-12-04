@@ -1,7 +1,7 @@
 import streamlit as st
 from datetime import datetime
 import pandas as pd
-import json # JSONモジュールをインポート
+import json 
 import io
 import time
 import base64
@@ -18,42 +18,41 @@ from google.oauth2.service_account import Credentials
 import google.auth
 
 # ==============================================================================
-# ⚠️ 1. 設定情報
+# ⚠️ 1. 設定情報 (secrets.toml の app_config セクションから読み込む)
 # ==============================================================================
 
-# スプレッドシートID: 日記マスターシート
-SPREADSHEET_ID = "1sEzw59aswIlA-8_CTyUrRBLN7OnrRIJERKUZ_bELMrY"
-WORKSHEET_NAME = "実験用" 
-
-# Googleドライブ フォルダID: アップロードされた画像を保存する場所
-DRIVE_FOLDER_ID = "1malvBDg-fIvzFWqxAyvOwL18hoKzzJoN" 
-
-# Gmail 下書き作成時のデフォルトの件名テンプレート
-DRAFT_SUBJECT_TEMPLATE = "【日報】{date}の日記更新"
-DRAFT_DEFAULT_TO_ADDRESS = "example@mailinglist.com"
-
-# ==============================================================================
-# 2. 認証情報の設定 (Streamlit Secretsから取得)
-# ==============================================================================
-
-# Secretsからgoogle_secretsキーを取得し、JSONとしてパースします
 try:
+    # 🚨 StreamlitのSecretsから設定値を読み込む（secrets.tomlのトップレベルキー）
+    SPREADSHEET_ID = st.secrets.app_config.SPREADSHEET_ID
+    WORKSHEET_NAME = st.secrets.app_config.WORKSHEET_NAME
+    DRIVE_FOLDER_ID = st.secrets.app_config.DRIVE_FOLDER_ID
+    DRAFT_SUBJECT_TEMPLATE = st.secrets.app_config.DRAFT_SUBJECT_TEMPLATE
+    DRAFT_DEFAULT_TO_ADDRESS = st.secrets.app_config.DRAFT_DEFAULT_TO_ADDRESS
+
+    # ==============================================================================
+    # 2. 認証情報の設定 (SecretsからJSON文字列として取得)
+    # ==============================================================================
+
     # 🚨 secrets.tomlに格納したJSON文字列全体を読み込みます
     raw_json_string = st.secrets["google_secrets"]
     
     # 🚨 JSON文字列をPython辞書に変換します
     SERVICE_ACCOUNT_KEY = json.loads(raw_json_string)
     
-    # 鍵データが欠損していないか検証（これは念のため）
-    if 'private_key' not in SERVICE_ACCOUNT_KEY:
-        raise ValueError("JSONデータに 'private_key' が見つかりません。")
-
-    # 注意: ここでは鍵のクリーンアップは不要です。json.loadsが改行を正しく処理するためです。
-
-except KeyError:
-    st.error("🚨 API初期化エラー: Secretsに必須キー 'google_secrets' が見つかりません。")
-    st.info("secrets.toml の内容が正しいか確認してください。")
+except KeyError as e:
+    # 🚨 デバッグ用！Secretsに何があるかを表示する
+    st.error(f"🚨 API初期化エラー: Secretsに必須キー '{e.args[0]}' が見つかりません。")
+    st.info("secrets.toml の内容をチェックしてください。特に以下のキーが存在するか確認！")
+    
+    # 読み込めたキーの一覧を表示
+    loaded_keys = list(st.secrets.keys())
+    if loaded_keys:
+        st.warning(f"現在、Secretsから読み込めているキーは: {loaded_keys}")
+        st.caption("もしこのリストに 'google_secrets' が無かったら、secrets.toml のファイル名または内容が間違っている可能性が高いよ！")
+    else:
+        st.error("Secretsから何も読み込めていません。設定ファイル (.streamlit/secrets.toml) が存在するか、内容が空でないか確認してください。")
     st.stop()
+
 except json.JSONDecodeError as e:
     st.error(f"🚨 JSONパースエラー: secrets.toml に格納されたJSON文字列の形式が不正です。詳細: {e}")
     st.info("secrets.toml の `google_secrets` キーの値が、完全なJSON形式で囲まれているか確認してください。")
@@ -74,7 +73,6 @@ def init_gspread_client(creds_info):
         return None, None
     try:
         # 認証情報の読み込み
-        # SERVICE_ACCOUNT_KEYはすでに正しい辞書形式です
         creds = Credentials.from_service_account_info(creds_info, 
                                                       scopes=['https://www.googleapis.com/auth/spreadsheets',
                                                               'https://www.googleapis.com/auth/drive'])
@@ -126,7 +124,7 @@ if sheet is None or drive_service is None or gmail_service is None:
     st.stop()
 
 # ==============================================================================
-# 4. メインアプリケーションロジック
+# 4. メインアプリケーションロジック (省略)
 # ==============================================================================
 
 # セッション状態の初期化
@@ -140,7 +138,7 @@ def upload_file_to_drive(file_buffer, file_name, folder_id, drive_service):
         file_metadata = {
             'name': file_name,
             'parents': [folder_id],
-            'mimeType': file_buffer.type  # ファイルタイプを自動判定
+            'mimeType': file_buffer.type
         }
         
         media = MediaIoBaseUpload(file_buffer, file_buffer.type, resumable=True)
@@ -226,7 +224,7 @@ def post_diary(writer, title, body, uploaded_file):
 
 
 # ==============================================================================
-# 5. Streamlit UI定義
+# 5. Streamlit UI定義 (省略)
 # ==============================================================================
 
 st.set_page_config(page_title="チーム日記投稿アプリ", layout="wide")
