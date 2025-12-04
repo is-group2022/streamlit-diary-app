@@ -150,7 +150,13 @@ if 'global_account' not in st.session_state:
     st.session_state.global_account = ACCOUNT_OPTIONS[0]
 
 
-tab1, tab2, tab3 = st.tabs(["📝 ① データ登録・画像アップロード", "🚀 ② 下書き作成・実行", "📂 ③ 履歴の検索・管理"])
+# タブの定義を4つに変更
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📝 ① データ登録・画像アップロード", 
+    "🚀 ② 下書き作成・実行", 
+    "📂 ③ 履歴の検索・管理", 
+    "📚 ④ テンプレート全文表示" # 新しいタブ
+])
 
 # =========================================================
 # --- Tab 1: データ登録・画像アップロード ---
@@ -159,73 +165,9 @@ tab1, tab2, tab3 = st.tabs(["📝 ① データ登録・画像アップロード
 with tab1:
     st.header("1️⃣ データ準備・入力")
     
-    # --- A. テンプレート参照 ---
+    # **テンプレート参照のセクションを削除し、Tab 4への誘導に置き換え**
     st.subheader("📖 日記使用可能文（コピペ用）")
-    
-    st.info("💡 **コピペ補助**：この表の項目を下の入力フォームにコピーしてください。ウィンドウを分けると便利です。")
-
-    try:
-        # GSpreadからデータを読み込み
-        ws_templates = SPRS.worksheet(USABLE_DIARY_SHEET)
-        
-        # --- DEBUG START (デバッグ表示は不要になったため、コードを整理します) ---
-        # --- DEBUG END ---
-
-        
-        # get_all_records() はヘッダー行を辞書のキーとして利用するため、ここで too many values が発生しやすい
-        records = ws_templates.get_all_records() 
-        
-        if not records:
-            st.warning("⚠️ **テンプレートシートが空**です。データが入力されているか確認してください。")
-            df_templates = pd.DataFrame() # 空のDataFrameを作成して処理を続行
-        else:
-            df_templates = pd.DataFrame(records)
-
-        # DataFrameが空でない場合のみフィルター処理と表示を行う
-        if not df_templates.empty:
-            
-            # フィルターUI
-            # 修正箇所: 3要素を受け取るため、3つの変数に展開
-            col_type, col_kind, _ = st.columns([1, 1, 3]) 
-            
-            # シートに「日記種類」列が存在するか確認してからselectboxのオプションを作成
-            type_options = ["すべて"]
-            if '日記種類' in df_templates.columns:
-                type_options.extend(df_templates['日記種類'].unique().tolist())
-            with col_type:
-                selected_type = st.selectbox("日記種類", type_options, key='t1_type')
-            
-            # シートに「タイプ種類」列が存在するか確認してからselectboxのオプションを作成
-            kind_options = ["すべて"]
-            if 'タイプ種類' in df_templates.columns:
-                kind_options.extend(df_templates['タイプ種類'].unique().tolist())
-            with col_kind:
-                selected_kind = st.selectbox("タイプ種類", kind_options, key='t1_kind')
-            
-            filtered_df = df_templates.copy()
-            
-            # フィルターロジックの適用
-            if selected_type != "すべて" and '日記種類' in filtered_df.columns:
-                filtered_df = filtered_df[filtered_df['日記種類'] == selected_type]
-            if selected_kind != "すべて" and 'タイプ種類' in filtered_df.columns:
-                filtered_df = filtered_df[filtered_df['タイプ種類'] == selected_kind]
-
-            # 必要な列のみを選択して表示（列がない場合はエラーになるため事前にチェック）
-            display_cols = ['タイトル', '本文', '日記種類', 'タイプ種類']
-            valid_display_cols = [col for col in display_cols if col in filtered_df.columns]
-            
-            st.dataframe(
-                filtered_df[valid_display_cols],
-                use_container_width=True,
-                height=200,
-                hide_index=True,
-            )
-        
-    except Exception as e:
-        # 読み込み失敗時の詳細なエラー情報と確認事項を表示
-        st.error(f"❌ テンプレートデータの読み込みエラー: {e}")
-        st.warning("🔑 **再確認事項**:\n1. **`secrets.toml`** の設定とシート名 (**`【使用可能日記文】`**) が完全に一致しているか。\n2. **GCPサービスアカウント**にスプレッドシートの**閲覧権限**が付与されているか。")
-
+    st.info("💡 **コピペ補助**：全画面でテンプレートを表示・コピペする場合は、**「📚 テンプレート全文表示」タブ**をご利用ください。")
     st.markdown("---")
     
     # --- B. 40件の日記データ入力 (常時展開・本文枠大) ---
@@ -335,7 +277,7 @@ with tab1:
                     row_data = [
                         entry['エリア'], entry['店名'], st.session_state.global_media, 
                         entry['投稿時間'], entry['女の子の名前'], entry['タイトル'],
-                        entry['本文'], entry['担当アカウント'] 
+                        entry['本文'], st.session_state.global_account 
                     ]
                     row_data.extend(['未実行', '未実行', '未実行']) 
                     final_data.append(row_data)
@@ -450,3 +392,71 @@ with tab3:
                 st.success(f"✅ 店舗 {selected_store} のアーカイブ（データ移動）が完了しました。（機能 C）")
     else:
         st.info("アーカイブできる店舗データがありません。")
+
+
+# =========================================================
+# --- Tab 4: テンプレート全文表示 (New!) ---
+# =========================================================
+
+with tab4:
+    st.header("4️⃣ テンプレート全文表示・コピペ用")
+
+    try:
+        # GSpreadからデータを読み込み
+        ws_templates = SPRS.worksheet(USABLE_DIARY_SHEET)
+        records = ws_templates.get_all_records()
+        
+        if not records:
+            st.warning("⚠️ **テンプレートシートが空**です。データが入力されているか確認してください。")
+            df_templates = pd.DataFrame() 
+        else:
+            df_templates = pd.DataFrame(records)
+
+        # DataFrameが空でない場合のみフィルター処理と表示を行う
+        if not df_templates.empty:
+            
+            # フィルターUI
+            # st.columns([1, 1, 3]) の3要素すべてを使い切るように変更
+            col_type, col_kind, col_spacer = st.columns([1, 1, 3]) 
+            
+            # シートに「日記種類」列が存在するか確認してからselectboxのオプションを作成
+            type_options = ["すべて"]
+            if '日記種類' in df_templates.columns:
+                type_options.extend(df_templates['日記種類'].unique().tolist())
+            with col_type:
+                # キーを 't4_' に変更して他のタブと競合しないようにする
+                selected_type = st.selectbox("日記種類", type_options, key='t4_type') 
+            
+            # シートに「タイプ種類」列が存在するか確認してからselectboxのオプションを作成
+            kind_options = ["すべて"]
+            if 'タイプ種類' in df_templates.columns:
+                kind_options.extend(df_templates['タイプ種類'].unique().tolist())
+            with col_kind:
+                selected_kind = st.selectbox("タイプ種類", kind_options, key='t4_kind')
+            
+            filtered_df = df_templates.copy()
+            
+            # フィルターロジックの適用
+            if selected_type != "すべて" and '日記種類' in filtered_df.columns:
+                filtered_df = filtered_df[filtered_df['日記種類'] == selected_type]
+            if selected_kind != "すべて" and 'タイプ種類' in filtered_df.columns:
+                filtered_df = filtered_df[filtered_df['タイプ種類'] == selected_kind]
+
+            st.markdown("---")
+            st.info("✅ **全画面表示モード**：下の表から必要な行をコピーし、Tab ① の入力フォームに貼り付けてください。")
+
+            # 必要な列のみを選択して表示（列がない場合はエラーになるため事前にチェック）
+            display_cols = ['タイトル', '本文', '日記種類', 'タイプ種類']
+            valid_display_cols = [col for col in display_cols if col in filtered_df.columns]
+            
+            st.dataframe(
+                filtered_df[valid_display_cols],
+                use_container_width=True,
+                height=None, # 高さを指定しないことで、内容に合わせて伸びるようにする
+                hide_index=True,
+            )
+        
+    except Exception as e:
+        # Tab 4でのエラー表示
+        st.error(f"❌ テンプレートデータの読み込みエラー: {e}")
+        st.warning("⚠️ Google Sheets の設定を確認してください。")
