@@ -4,7 +4,7 @@ from gspread import Client, Worksheet
 from google.oauth2.service_account import Credentials
 from typing import Dict, Any
 import logging
-import base64
+import base64 # 今回はBASE64は使わないが、念のためimportを残す
 
 # ログレベルの設定（デバッグ用）
 logging.basicConfig(level=logging.INFO)
@@ -14,7 +14,7 @@ SCOPES = ['https://www.googleapis.com/auth/spreadsheets',
           'https://www.googleapis.com/auth/drive']
 
 # ----------------------------------------------------------------------
-# 認証情報の読み込みと整形（BASE64エンコードされたSecretsに対応）
+# 認証情報の読み込みと整形（改行なしのRAW文字列に対応）
 # ----------------------------------------------------------------------
 
 @st.cache_resource
@@ -22,8 +22,8 @@ def get_gspread_client() -> Client:
     """
     Streamlit SecretsからGoogleサービスアカウント認証情報を取得し、
     gspreadクライアントを初期化します。
-    
-    Secrets設定のTOMLエラーを回避するため、private_key_base64をデコードして整形します。
+
+    Secrets設定のTOML形式エラーを回避するため、private_key_rawから改行コードを復元します。
     """
     
     # 認証情報を取得
@@ -40,23 +40,39 @@ def get_gspread_client() -> Client:
         info[key] = value
 
     # 🚨 修正ロジック：
-    # private_key_base64キーを探し、値をデコードして private_key キーに設定し直します。
-    if 'private_key_base64' in info and isinstance(info['private_key_base64'], str):
+    # private_key_rawキーを探し、改行コードを復元して private_key キーに設定し直します。
+    if 'private_key_raw' in info and isinstance(info['private_key_raw'], str):
         try:
-            # BASE64文字列をデコードし、バイト列からUTF-8文字列に変換
-            pk_base64_decoded = base64.b64decode(info['private_key_base64']).decode('utf-8')
+            pk_content = info['private_key_raw']
+            
+            # BEGIN PRIVATE KEYの直後と、その後の文字列を区切る位置に改行文字 '\n' を手動で挿入します。
+            # さらに、64文字ごとに改行を挿入して、元のファイル形式に近づけます。
+            
+            # 1. ヘッダーとフッターを処理
+            pk_content = pk_content.replace('-----BEGIN PRIVATE KEY-----', '-----BEGIN PRIVATE KEY-----\n')
+            pk_content = pk_content.replace('-----END PRIVATE KEY-----', '\n-----END PRIVATE KEY-----\n')
+            
+            # 2. 鍵本体の行の途中に含まれるスペースを削除
+            pk_content = pk_content.replace(' ', '')
+            
+            # 3. 鍵本体（Base64部分）を64文字ごとに改行する (最初のヘッダーと最後のフッターを無視)
+            key_body = pk_content.split('\n')[1]
+            reformatted_key_body = '\n'.join([key_body[i:i+64] for i in range(0, len(key_body), 64)])
+            
+            # 4. 全体を結合
+            pk_reformatted = "-----BEGIN PRIVATE KEY-----\n" + reformatted_key_body + "\n-----END PRIVATE KEY-----\n"
             
             # 認証クライアントが期待する private_key キーに設定
-            info['private_key'] = pk_base64_decoded
+            info['private_key'] = pk_reformatted
             
-            # デバッグのためにBASE64キーは削除（必須ではないが推奨）
-            del info['private_key_base64'] 
-            logging.info("private_key_base64をデコードし、認証情報に復元しました。")
+            # デバッグのためにRAWキーは削除
+            del info['private_key_raw'] 
+            logging.info("private_key_rawから認証情報に復元しました。")
         except Exception as e:
-            st.error(f"BASE64デコード処理に失敗しました。キーの値が正しいBASE64形式か確認してください。エラー詳細: {e}")
+            st.error(f"private_keyの文字列処理に失敗しました。キーの値が正しいか確認してください。エラー詳細: {e}")
             st.stop()
     else:
-        st.error("Secretsに 'private_key_base64' キーが見つかりません。Secretsの設定を確認してください。")
+        st.error("Secretsに 'private_key_raw' キーが見つかりません。Secretsの設定を確認してください。")
         st.stop()
 
 
@@ -66,8 +82,13 @@ def get_gspread_client() -> Client:
         creds = Credentials.from_service_account_info(info, scopes=SCOPES)
         return Client(auth=creds)
     except Exception as e:
+        # 認証情報の内容を表示してデバッグを容易にする (private_keyは表示しない)
+        debug_info = info.copy()
+        if 'private_key' in debug_info:
+            debug_info['private_key'] = debug_info['private_key'][:50] + "..."
+            
         st.error(f"Google認証情報の初期化に失敗しました。Secretsの内容が正しいか確認してください。エラー詳細: {e}")
-        st.code(info) # 認証情報の内容を表示してデバッグを容易にする
+        st.code(debug_info) 
         st.stop()
 
 # ----------------------------------------------------------------------
@@ -107,9 +128,9 @@ with tab2:
     st.subheader("[app_config] 設定")
     st.json(st.secrets.get("app_config", {}))
     st.subheader("[google_secrets] のキー情報")
-    # private_key_base64を表示
+    # private_key_rawを表示
     debug_secrets = st.secrets.get("google_secrets", {}).copy()
-    if 'private_key_base64' in debug_secrets:
-        debug_secrets['private_key_base64'] = debug_secrets['private_key_base64'][:50] + "..." 
+    if 'private_key_raw' in debug_secrets:
+        debug_secrets['private_key_raw'] = debug_secrets['private_key_raw'][:50] + "..." 
     st.json(debug_secrets)
     st.write("認証クライアントオブジェクトの存在確認: OK")
