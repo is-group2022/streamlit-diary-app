@@ -166,30 +166,59 @@ with tab1:
     try:
         # GSpreadからデータを読み込み
         ws_templates = SPRS.worksheet(USABLE_DIARY_SHEET)
-        df_templates = pd.DataFrame(ws_templates.get_all_records())
         
-        # フィルターUI
-        col_type, col_kind = st.columns([1, 1, 3])
-        with col_type:
-            selected_type = st.selectbox("日記種類", ["すべて", "出勤", "退勤", "その他"], key='t1_type')
-        with col_kind:
-            selected_kind = st.selectbox("タイプ種類", ["すべて", "若", "妻", "おば"], key='t1_kind')
+        # すべてのレコードを取得
+        records = ws_templates.get_all_records()
         
-        filtered_df = df_templates.copy()
-        if selected_type != "すべて":
-            filtered_df = filtered_df[filtered_df['日記種類'] == selected_type]
-        if selected_kind != "すべて":
-            filtered_df = filtered_df[filtered_df['タイプ種類'] == selected_kind]
+        if not records:
+            st.warning("⚠️ **テンプレートシートが空**です。データが入力されているか確認してください。")
+            df_templates = pd.DataFrame() # 空のDataFrameを作成して処理を続行
+        else:
+            df_templates = pd.DataFrame(records)
 
-        st.dataframe(
-            filtered_df[['タイトル', '本文', '日記種類', 'タイプ種類']],
-            use_container_width=True,
-            height=200,
-            hide_index=True,
-        )
+        # DataFrameが空でない場合のみフィルター処理と表示を行う
+        if not df_templates.empty:
+            
+            # フィルターUI
+            col_type, col_kind = st.columns([1, 1, 3])
+            
+            # シートに「日記種類」列が存在するか確認してからselectboxのオプションを作成
+            type_options = ["すべて"]
+            if '日記種類' in df_templates.columns:
+                type_options.extend(df_templates['日記種類'].unique().tolist())
+            with col_type:
+                selected_type = st.selectbox("日記種類", type_options, key='t1_type')
+            
+            # シートに「タイプ種類」列が存在するか確認してからselectboxのオプションを作成
+            kind_options = ["すべて"]
+            if 'タイプ種類' in df_templates.columns:
+                kind_options.extend(df_templates['タイプ種類'].unique().tolist())
+            with col_kind:
+                selected_kind = st.selectbox("タイプ種類", kind_options, key='t1_kind')
+            
+            filtered_df = df_templates.copy()
+            
+            # フィルターロジックの適用
+            if selected_type != "すべて" and '日記種類' in filtered_df.columns:
+                filtered_df = filtered_df[filtered_df['日記種類'] == selected_type]
+            if selected_kind != "すべて" and 'タイプ種類' in filtered_df.columns:
+                filtered_df = filtered_df[filtered_df['タイプ種類'] == selected_kind]
+
+            # 必要な列のみを選択して表示（列がない場合はエラーになるため事前にチェック）
+            display_cols = ['タイトル', '本文', '日記種類', 'タイプ種類']
+            valid_display_cols = [col for col in display_cols if col in filtered_df.columns]
+            
+            st.dataframe(
+                filtered_df[valid_display_cols],
+                use_container_width=True,
+                height=200,
+                hide_index=True,
+            )
         
     except Exception as e:
-        st.warning(f"テンプレートデータの読み込みに失敗しました: {e}")
+        # 読み込み失敗時の詳細なエラー情報と確認事項を表示
+        st.error(f"❌ テンプレートデータの読み込みエラー: {e}")
+        st.warning("🔑 **確認事項**: 以下の点を確認してください。\n1. **`secrets.toml`** の設定が正しいか。\n2. Google Sheets の **シート名** (`USABLE_DIARY_SHEET` の値) が一致しているか。\n3. シートに**ヘッダー行**（例: タイトル, 本文, 日記種類, タイプ種類）が正しく入力されているか。")
 
     st.markdown("---")
     
@@ -278,7 +307,7 @@ with tab1:
                     girl_name = entry['女の子の名前'].strip()
                     
                     if not hhmm or not girl_name:
-                         # 修正箇所: f-stringを一行に修正
+                         # f-string修正済み
                          st.error(f"❌ No. {i+1} のファイル名エラー: 投稿時間/名前を入力してください。") 
                          continue
                          
