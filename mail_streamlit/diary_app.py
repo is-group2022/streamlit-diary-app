@@ -22,7 +22,7 @@ from googleapiclient.errors import HttpError
 # --- 1. 定数と初期設定 ---
 try:
     # 接続に必要な情報は st.secrets から取得
-    SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"] # <-- メインのID
+    SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"] # <-- 日記登録、履歴などで使用するメインのID
     DRIVE_FOLDER_ID = st.secrets["google_resources"]["drive_folder_id"] 
     
     # 【✨修正: テンプレート用SpreadSheet ID】
@@ -121,8 +121,6 @@ except SystemExit:
 
 
 # --- 2-1. Drive フォルダ管理ヘルパー関数 (変更なし) ---
-# (find_folder_by_name, create_folder, get_or_create_folder, upload_file_to_drive, drive_upload_wrapper は変更なし)
-
 def find_folder_by_name(service, name, parent_id):
     """指定された親フォルダ内でフォルダ名を探す"""
     query = (
@@ -256,16 +254,17 @@ def update_sheet_status(sheets_service, row_index, col_index, status):
             valueInputOption=value_input_option, body=body).execute()
         return True
     except HttpError as error:
-        st.error(f"-> [Sheets] 書き込みエラーが発生しました: {error}")
+        # このエラーはログエリアではなく、システムエラーとして扱う
         return False
 
 # --------------------------
-# Step 2: Gmail下書き作成 (エラーログ強化済み)
+# Step 2: Gmail下書き作成 
 # --------------------------
 def create_raw_draft_message(subject, body):
     """EmailMessageを構築し、Base64URLエンコードする (宛先は空欄)"""
     message = EmailMessage()
     message['To'] = "" 
+    # 件名に改行が入らないよう処理
     safe_subject = subject.replace('\r', '').replace('\n', '').strip() 
     message['Subject'] = safe_subject 
     message.set_content(body) 
@@ -306,7 +305,7 @@ def execute_step_2(sheets_service, gmail_service, target_account_key, status_are
                  row.extend([''] * (COL_INDEX_RECIPIENT_STATUS + 1 - len(row)))
             
             # I列（下書き登録確認）チェック
-            if row[COL_INDEX_DRAFT_STATUS].strip().lower() == "登録済" or row[COL_INDEX_DRAFT_STATUS].strip().lower().endswith("エラー"):
+            if row[COL_INDEX_DRAFT_STATUS].strip().lower() == "登録済" or row[COL_INDEX_DRAFT_STATUS].strip().lower().startswith("gmailエラー"):
                  continue
             
             # H列 (担当アカウント) チェック
@@ -346,7 +345,6 @@ def execute_step_2(sheets_service, gmail_service, target_account_key, status_are
             try:
                 # 担当アカウントのメールアドレスを Gmail API の `userId` として使用
                 message = {'message': {'raw': raw_message}}
-                # 【✨修正: エラーログ強化のため、APIの戻り値を確認】
                 gmail_service.users().drafts().create(userId=target_email, body=message).execute()
                 
                 update_sheet_status(sheets_service, sheet_row_number, COL_INDEX_DRAFT_STATUS, "登録済")
@@ -372,8 +370,6 @@ def execute_step_2(sheets_service, gmail_service, target_account_key, status_are
 # Step 3: 画像添付
 # --------------------------
 def extract_time_from_draft(subject):
-# (find_matching_image_in_drive, update_draft_with_attachment, execute_step_3 は変更なし)
-# ...
     """件名から HHMM 形式の時刻を抽出する。"""
     match = re.search(r'(\d{4})', subject)
     if match:
@@ -704,43 +700,55 @@ def execute_step_5(gc, sheets_service, status_area):
 
 def run_step(step_num, action_desc):
     """実行ステップのハンドラ (Step 1, 2, 3, 4)"""
-    # 実行ログ表示用のプレースホルダーをセット
-    st.session_state.last_run_status = st.empty()
     
     # 担当アカウントはセッションステートから取得
     target_account_key = st.session_state.global_account 
+    
+    # ログ表示エリアの取得
+    status_area_placeholder = st.session_state.last_run_status_placeholder
+
+    if status_area_placeholder is None:
+        # 万が一プレースホルダーがない場合の安全措置
+        st.error("ログ表示エリアの初期化エラーです。アプリを再読み込みしてください。")
+        return
+
+    # プレースホルダーをクリアして、新しいコンテナを作成
+    status_area = status_area_placeholder.container() 
 
     if step_num == 1:
-        st.session_state.last_run_status.info("🚨 Step 1 (アドレス/連絡先更新) は **People API** を利用するため、**アプリ上では実行できません**。ローカルスクリプトを実行してください。")
-        st.session_state.last_run_status.success(f"✅ Step 1: **{action_desc}** の処理ロジックは確認済みです。")
+        status_area.info("🚨 Step 1 (アドレス/連絡先更新) は **People API** を利用するため、**アプリ上では実行できません**。ローカルスクリプトを実行してください。")
+        status_area.success(f"✅ Step 1: **{action_desc}** の処理ロジックは確認済みです。")
         return
 
     elif step_num == 2:
-        status_area = st.session_state.last_run_status.container()
         execute_step_2(SHEETS_SERVICE, GMAIL_SERVICE, target_account_key, status_area)
-        # st.session_state.last_run_status = status_area # 更新された状態を保持
 
     elif step_num == 3:
-        status_area = st.session_state.last_run_status.container()
         execute_step_3(SHEETS_SERVICE, DRIVE_SERVICE, GMAIL_SERVICE, target_account_key, status_area)
-        # st.session_state.last_run_status = status_area
 
     elif step_num == 4:
-        st.session_state.last_run_status.info("🚨 Step 4 (宛先登録実行) は **People API** を利用するため、**アプリ上では実行できません**。ローカルスクリプトを実行してください。")
-        st.session_state.last_run_status.success(f"✅ Step 4: **{action_desc}** の処理ロジックは確認済みです。")
+        status_area.info("🚨 Step 4 (宛先登録実行) は **People API** を利用するため、**アプリ上では実行できません**。ローカルスクリプトを実行してください。")
+        status_area.success(f"✅ Step 4: **{action_desc}** の処理ロジックは確認済みです。")
         return
     
     # 最終的な実行ログのフッター
-    if st.session_state.last_run_status:
-        st.session_state.last_run_status.markdown("---")
-        st.session_state.last_run_status.info(f"最終実行時刻: {time.strftime('%H:%M:%S')}")
+    status_area.markdown("---")
+    status_area.info(f"最終実行時刻: {time.strftime('%H:%M:%S')}")
 
 
 def run_step_5_move_to_history():
     """Step 5: 履歴へ移動（新規機能）"""
-    status_area = st.empty()
+    
+    status_area_placeholder = st.session_state.last_run_status_placeholder
+    if status_area_placeholder is None:
+        st.error("ログ表示エリアの初期化エラーです。アプリを再読み込みしてください。")
+        return
+        
+    status_area = status_area_placeholder.container()
     execute_step_5(SPRS, SHEETS_SERVICE, status_area)
-    st.session_state.last_run_status = status_area
+    
+    status_area.markdown("---")
+    status_area.info(f"最終実行時刻: {time.strftime('%H:%M:%S')}")
 
 
 # --- 4. Streamlit UI 構築 ---
@@ -802,8 +810,9 @@ if 'global_media' not in st.session_state:
 if 'global_account' not in st.session_state:
     st.session_state.global_account = ACCOUNT_OPTIONS[0]
 
-if 'last_run_status' not in st.session_state:
-    st.session_state.last_run_status = st.empty()
+# 【✨修正: ログ表示のプレースホルダーを初期化】
+if 'last_run_status_placeholder' not in st.session_state:
+    st.session_state.last_run_status_placeholder = None 
 
 
 # タブの定義
@@ -973,9 +982,12 @@ with tab2:
 
     st.markdown("---")
 
-    # 実行結果のログエリア (セッションステートで更新される)
+    # 実行結果のログエリア (プレースホルダーをここで作成し、セッションステートに保持)
     st.subheader("📝 実行ログ")
-    st.session_state.last_run_status
+    if st.session_state.last_run_status_placeholder is None:
+        st.session_state.last_run_status_placeholder = st.empty()
+    
+    # ログを更新するためにプレースホルダーを利用。ここでは明示的な表示は不要。
     
     st.subheader("📊 登録データの実行状況")
     try:
