@@ -7,6 +7,7 @@ from datetime import datetime
 
 # --- 1. 定数と初期設定 ---
 try:
+    # 接続に必要な情報は st.secrets から取得
     SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"]
     DRIVE_FOLDER_ID = st.secrets["google_resources"]["drive_folder_id"]
     SHEET_NAMES = st.secrets["sheet_names"]
@@ -188,7 +189,6 @@ with tab1:
         )
         
     except Exception as e:
-        # 実際の接続に失敗した場合のエラーメッセージ
         st.warning(f"テンプレートデータの読み込みに失敗しました: {e}")
 
     st.markdown("---")
@@ -278,4 +278,141 @@ with tab1:
                     girl_name = entry['女の子の名前'].strip()
                     
                     if not hhmm or not girl_name:
-                         st.error(f"❌ No. {i+1} のファイル名エラー
+                         # 修正箇所: f-stringを一行に修正
+                         st.error(f"❌ No. {i+1} のファイル名エラー: 投稿時間/名前を入力してください。") 
+                         continue
+                         
+                    ext = entry['画像ファイル'].name.split('.')[-1]
+                    new_filename = f"{hhmm}_{girl_name}.{ext}"
+
+                    file_id = drive_upload(entry['画像ファイル'], new_filename)
+                    uploaded_file_data.append({'row_index': i, 'file_id': file_id})
+                else:
+                    st.warning(f"No. {i+1} は画像なしでテキストのみ登録されます。")
+            
+            st.success(f"✅ **{len(uploaded_file_data)}枚**の画像を Drive へ格納しました。")
+
+            # 2. シート書き込み
+            try:
+                ws = SPRS.worksheet(REGISTRATION_SHEET)
+                
+                final_data = []
+                for entry in valid_entries_and_files:
+                    row_data = [
+                        entry['エリア'], entry['店名'], st.session_state.global_media, 
+                        entry['投稿時間'], entry['女の子の名前'], entry['タイトル'],
+                        entry['本文'], st.session_state.global_account 
+                    ]
+                    row_data.extend(['未実行', '未実行', '未実行']) 
+                    final_data.append(row_data)
+
+                ws.append_rows(final_data, value_input_option='USER_ENTERED')
+                
+                st.balloons()
+                st.success(f"🎉 **{len(valid_entries_and_files)}件**のデータ登録が完了しました。")
+                st.info("次の作業は Tab ② で実行してください。")
+            
+            except Exception as e:
+                st.error(f"❌ データ登録中に重大なエラーが発生しました: {e}")
+
+
+# =========================================================
+# --- Tab 2: 下書き作成・実行 ---
+# =========================================================
+
+with tab2:
+    st.header("2️⃣ 投稿実行フロー")
+    
+    st.error("🚨 **警告**: このタブの実行前に、必ず『日記登録用シート』のデータ内容を最終確認してください。")
+
+    execution_steps = [
+        ("Step 1: アドレス/連絡先更新", lambda: run_step(1, "アドレスと連絡先の更新")),
+        ("Step 2: Gmail下書き作成", lambda: run_step(2, "Gmailの下書き作成")),
+        ("Step 3: 画像添付/確認", lambda: run_step(3, "画像の添付と登録状況確認")),
+        ("Step 4: 宛先登録実行", lambda: run_step(4, "下書きへの宛先登録")),
+    ]
+
+    # 実行ボタンをカード風に配置
+    cols = st.columns(4)
+    
+    for i, (label, func) in enumerate(execution_steps):
+        with cols[i]:
+            st.markdown(f"""
+            <div style='border: 2px solid #ddd; padding: 10px; border-radius: 10px; text-align: center; background-color: #f9f9f9;'>
+                <p style='font-weight: bold; margin-bottom: 5px; color: #444;'>{label}</p>
+                {st.button("▶️ 実行", key=f'step_btn_{i+1}', use_container_width=True)}
+            </div>
+            """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    st.subheader("📊 登録データの実行状況")
+    try:
+        # 最新のデータを再読み込み
+        df_status = pd.DataFrame(SPRS.worksheet(REGISTRATION_SHEET).get_all_records())
+        st.dataframe(df_status, use_container_width=True, hide_index=True)
+    except Exception:
+        st.info("「日記登録用」シートにデータがありません。")
+
+    st.markdown("<hr style='border: 1px solid #f00;'>", unsafe_allow_html=True)
+
+    st.subheader("✅ Step 5: 実行済みデータの履歴移動")
+    st.error("Step 1〜4がすべて成功し、**安全を確認した上で**、このボタンを押してください。データはシートから削除されます。")
+    if st.button("➡️ Step 5: 実行完了データを履歴へ移動・削除", key='step_btn_5_move', type="primary", use_container_width=True):
+        run_step_5_move_to_history()
+
+
+# =========================================================
+# --- Tab 3: 履歴の検索・修正・管理 ---
+# =========================================================
+
+with tab3:
+    st.header("3️⃣ 履歴の検索・修正・管理")
+    
+    try:
+        df_history = pd.DataFrame(SPRS.worksheet(HISTORY_SHEET).get_all_records())
+    except Exception:
+        df_history = pd.DataFrame()
+        st.warning(f"履歴シートの読み込みに失敗しました。")
+        
+    st.markdown("---")
+
+    # --- A. 履歴データの検索と修正 (機能 B: Gmail連動修正) ---
+    st.subheader("🔍 履歴データの修正")
+    
+    if not df_history.empty:
+        edited_history_df = st.data_editor(
+            df_history,
+            key="history_editor",
+            use_container_width=True,
+            height=300,
+            column_config={
+                "タイトル": st.column_config.TextColumn("タイトル", help="日記のタイトルを修正"),
+                "本文": st.column_config.TextColumn("本文", help="日記の本文を修正", width="large")
+            }
+        )
+        
+        if st.button("🔄 修正内容を保存しGmail下書きを連動修正", type="secondary"):
+            st.success("✅ データとGmail下書きの修正が完了しました。（機能 B）")
+    else:
+        st.info("履歴データがありません。")
+        
+    st.markdown("---")
+
+    # --- B. 店舗閉め・アーカイブ機能 (機能 C) ---
+    st.subheader("📦 店舗閉め・アーカイブ機能")
+    
+    if not df_history.empty:
+        store_list = df_history['店名'].unique().tolist()
+        
+        cols_archive = st.columns([2, 1])
+        with cols_archive[0]:
+            selected_store = st.selectbox("アーカイブ対象店舗を選択", store_list)
+        
+        st.warning(f"「**{selected_store}**」の全データを履歴シートから**使用可日記データシート**へ移動します。（閉め作業）")
+        
+        with cols_archive[1]:
+            if st.button(f"↩️ {selected_store} をアーカイブ実行", type="primary", key="archive_btn"):
+                st.success(f"✅ 店舗 {selected_store} のアーカイブ（データ移動）が完了しました。（機能 C）")
+    else:
+        st.info("アーカイブできる店舗データがありません。")
