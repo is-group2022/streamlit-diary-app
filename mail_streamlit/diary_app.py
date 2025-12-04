@@ -25,7 +25,7 @@ try:
     SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"] # <-- 日記登録、履歴などで使用するメインのID
     DRIVE_FOLDER_ID = st.secrets["google_resources"]["drive_folder_id"] 
     
-    # 【✨修正: テンプレート用SpreadSheet ID】
+    # テンプレート用SpreadSheet ID
     USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
 
     SHEET_NAMES = st.secrets["sheet_names"]
@@ -41,6 +41,7 @@ try:
     # 担当アカウントとメールアドレスのマッピング (Step 2, 3で使用)
     ACCOUNT_MAPPING = {
         # !!! 注意: サービスアカウントにアクセスを許可した実在のメールアドレスに置き換えてください !!!
+        # 【重要】これらのアカウントは、サービスアカウントから委任を受ける必要があります。
         "A": "main.ekichika.a@gmail.com", 
         "B": "main.ekichika.b@gmail.com", 
         "SUB": "sub.media@wwwsigroupcom.com" 
@@ -107,7 +108,14 @@ def connect_to_api_services():
         creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
         sheets_service = build('sheets', 'v4', credentials=creds)
         drive_service = build('drive', 'v3', credentials=creds)
-        gmail_service = build('gmail', 'v1', credentials=creds)
+        
+        # 【重要: Gmail接続の修正のヒント】
+        # ドメイン全体の委任を設定している場合は、ユーザー委任を設定して再構築する必要がある
+        # 例: service = build('gmail', 'v1', credentials=creds.with_subject('user_to_impersonate@example.com'))
+        # ただし、ここではまだユーザーを特定できないため、まずは標準のサービスアカウントで構築。
+        # 実行時の関数内で user_id (target_email) を使用して委任を行う。
+        gmail_service = build('gmail', 'v1', credentials=creds) 
+        
         return sheets_service, drive_service, gmail_service
     except Exception as e:
         st.error(f"❌ Google APIサービスへの接続に失敗しました: {e}")
@@ -255,6 +263,7 @@ def update_sheet_status(sheets_service, row_index, col_index, status):
         return True
     except HttpError as error:
         # このエラーはログエリアではなく、システムエラーとして扱う
+        st.error(f"❌ シート更新エラー: {error.resp.status}")
         return False
 
 # --------------------------
@@ -280,10 +289,10 @@ def execute_step_2(sheets_service, gmail_service, target_account_key, status_are
         status_area.error(f"エラー: 不明なターゲットアカウントキー '{target_account_key}'")
         return False
 
-    status_area.info(f"--- Step 2: {target_account_key} の下書き作成を開始します ---")
+    status_area.info(f"--- Step 2: **{target_account_key}** の下書き作成を開始します (対象メール: **{target_email}**) ---")
 
     try:
-        # 1. シートからデータを取得 (A:K)
+        # 1. シートからデータを取得 (A:K) - 文字列として取得
         result = sheets_service.spreadsheets().values().get(
             spreadsheetId=SHEET_ID, 
             range=f"{REGISTRATION_SHEET}!A:K"
@@ -296,6 +305,7 @@ def execute_step_2(sheets_service, gmail_service, target_account_key, status_are
 
         data_rows = values[1:]
         success_count = 0
+        skip_count = 0
         
         for index, row in enumerate(data_rows):
             sheet_row_number = index + 2 # A2が2行目
@@ -305,11 +315,16 @@ def execute_step_2(sheets_service, gmail_service, target_account_key, status_are
                  row.extend([''] * (COL_INDEX_RECIPIENT_STATUS + 1 - len(row)))
             
             # I列（下書き登録確認）チェック
-            if row[COL_INDEX_DRAFT_STATUS].strip().lower() == "登録済" or row[COL_INDEX_DRAFT_STATUS].strip().lower().startswith("gmailエラー"):
+            draft_status = row[COL_INDEX_DRAFT_STATUS].strip().lower()
+            if draft_status == "登録済" or draft_status.startswith("gmailエラー"):
+                 status_area.caption(f"  スキップ (行 {sheet_row_number}): I列が '{row[COL_INDEX_DRAFT_STATUS]}' です。")
+                 skip_count += 1
                  continue
             
             # H列 (担当アカウント) チェック
             if row[COL_INDEX_HANDLER].strip().upper() != target_account_key:
+                 status_area.caption(f"  スキップ (行 {sheet_row_number}): H列の担当アカウントが '{target_account_key}' ではありません。")
+                 skip_count += 1
                  continue
             
             # 必須データ抽出と件名生成
@@ -323,10 +338,15 @@ def execute_step_2(sheets_service, gmail_service, target_account_key, status_are
                 original_body_safe = row[COL_INDEX_BODY] 
                 
                 if not (location and store_name and media_name and post_time and name and subject_title_safe and original_body_safe):
+                    status_area.warning(f"  警告 (行 {sheet_row_number}): 必須項目に空欄がありスキップしました。")
+                    update_sheet_status(sheets_service, sheet_row_number, COL_INDEX_DRAFT_STATUS, "データ不足")
+                    skip_count += 1
                     continue
 
+                # 投稿時間の整形 (ここでゼロ埋めを行い、APIが期待する4桁にする)
                 raw_time_str = str(post_time).replace(':', '')
                 formatted_time = raw_time_str.zfill(4)
+                
                 # 件名に含まれる識別子生成のために氏名から括弧内を削除
                 name_cleaned = re.sub(r'[（\(][^）\)]+[）\)]', '', name).strip()
                 
@@ -338,28 +358,38 @@ def execute_step_2(sheets_service, gmail_service, target_account_key, status_are
                 raw_message = create_raw_draft_message(final_subject, original_body_safe)
 
             except Exception:
+                status_area.error(f"  エラー (行 {sheet_row_number}): データ整形中にエラーが発生しました。")
                 update_sheet_status(sheets_service, sheet_row_number, COL_INDEX_DRAFT_STATUS, "データエラー")
+                skip_count += 1
                 continue
             
             # 3. Gmail 下書き作成
             try:
                 # 担当アカウントのメールアドレスを Gmail API の `userId` として使用
                 message = {'message': {'raw': raw_message}}
+                
+                # 【重要】サービスアカウントにドメイン全体の委任が設定されていることが前提
                 gmail_service.users().drafts().create(userId=target_email, body=message).execute()
                 
                 update_sheet_status(sheets_service, sheet_row_number, COL_INDEX_DRAFT_STATUS, "登録済")
+                status_area.caption(f"  ✅ 下書き作成成功: 行 {sheet_row_number} - 件名: {final_subject[:30]}...")
                 success_count += 1
                 
             except HttpError as err:
                 # APIからの詳細エラーメッセージをシートに書き込む
-                # ステータスコードと理由を記録し、エラーの特定を容易にする
-                status_text = f"Gmailエラー:{err.resp.status} ({err.resp.reason[:10]}...)"
+                status_text = f"Gmailエラー:{err.resp.status} ({err.resp.reason[:20]}...)"
                 update_sheet_status(sheets_service, sheet_row_number, COL_INDEX_DRAFT_STATUS, status_text)
-                status_area.error(f"❌ 行 {sheet_row_number}: {status_text} - 詳細については、サービスアカウントの委任権限を確認してください。")
-            except Exception:
+                
+                if err.resp.status in [403]:
+                    status_area.error(f"❌ 行 {sheet_row_number}: **{status_text}** -> **ドメイン全体の委任権限（DWD）** を確認してください。")
+                else:
+                    status_area.error(f"❌ 行 {sheet_row_number}: {status_text} - APIエラーが発生しました。")
+                    
+            except Exception as e:
                 update_sheet_status(sheets_service, sheet_row_number, COL_INDEX_DRAFT_STATUS, "予期せぬエラー")
+                status_area.error(f"❌ 行 {sheet_row_number}: 予期せぬエラーが発生しました: {e}")
 
-        status_area.success(f"🎉 Step 2: 下書き作成が完了しました。成功件数: **{success_count}** 件。")
+        status_area.success(f"🎉 Step 2: 下書き作成が完了しました。成功件数: **{success_count}** 件 (スキップ: {skip_count} 件)。")
         return True
 
     except Exception as e:
@@ -535,7 +565,7 @@ def execute_step_3(sheets_service, drive_service, gmail_service, target_account_
     status_area.info(f"--- Step 3: {target_account_key} の画像添付処理を開始します ---")
 
     try:
-        # 1. シートからデータを取得 (A:K)
+        # 1. シートからデータを取得 (A:K) - 文字列として取得
         result = sheets_service.spreadsheets().values().get(
             spreadsheetId=SHEET_ID, 
             range=f"{REGISTRATION_SHEET}!A:K"
@@ -631,7 +661,7 @@ def execute_step_5(gc, sheets_service, status_area):
     status_area.info("🔄 Step 5: **実行済みデータ**を履歴シートへ移動中...")
 
     try:
-        # 1. データの読み込み (ヘッダーも含むA:K列)
+        # 1. データの読み込み (ヘッダーも含むA:K列) - 文字列として取得
         result = sheets_service.spreadsheets().values().get(
             spreadsheetId=SHEET_ID, 
             range=f"{REGISTRATION_SHEET}!A:K"
@@ -656,7 +686,6 @@ def execute_step_5(gc, sheets_service, status_area):
             
             # K列 (宛先登録確認) が「登録済」の場合
             if row[COL_INDEX_RECIPIENT_STATUS].strip() == "登録済":
-                # 移動前に現在時刻と実行者名を最終列に追加することも可能
                 rows_to_move.append(row)
                 rows_to_delete_index.append(index) # ヘッダーを含まないインデックス
 
@@ -810,7 +839,7 @@ if 'global_media' not in st.session_state:
 if 'global_account' not in st.session_state:
     st.session_state.global_account = ACCOUNT_OPTIONS[0]
 
-# 【✨修正: ログ表示のプレースホルダーを初期化】
+# 【修正済み: ログ表示のプレースホルダーを初期化】
 if 'last_run_status_placeholder' not in st.session_state:
     st.session_state.last_run_status_placeholder = None 
 
@@ -991,11 +1020,19 @@ with tab2:
     
     st.subheader("📊 登録データの実行状況")
     try:
-        # 最新のデータを再読み込み
-        df_status = pd.DataFrame(SPRS.worksheet(REGISTRATION_SHEET).get_all_records())
-        st.dataframe(df_status, use_container_width=True, hide_index=True)
-    except Exception:
-        st.info("「日記登録用」シートにデータがありません。")
+        # 【✨修正箇所】 get_all_records() を避け、get_all_values() で全データを文字列として取得する
+        ws = SPRS.worksheet(REGISTRATION_SHEET)
+        all_values = ws.get_all_values()
+        
+        if all_values and len(all_values) > 1:
+            # 最初の行をヘッダーとし、残りをデータとしてDataFrameを作成
+            df_status = pd.DataFrame(all_values[1:], columns=all_values[0])
+            st.dataframe(df_status, use_container_width=True, hide_index=True)
+        else:
+            st.info("「日記登録用」シートにデータがありません。")
+
+    except Exception as e:
+        st.info(f"シートの読み込みエラー: {e}")
 
     st.markdown("<hr style='border: 1px solid #f00;'>", unsafe_allow_html=True)
 
@@ -1013,7 +1050,15 @@ with tab3:
     st.header("3️⃣ 自動投稿データの検索・管理")
     
     try:
-        df_history = pd.DataFrame(SPRS.worksheet(HISTORY_SHEET).get_all_records())
+        # 履歴シートも文字列として読み込む
+        ws_history = SPRS.worksheet(HISTORY_SHEET)
+        history_values = ws_history.get_all_values()
+        
+        if history_values and len(history_values) > 1:
+             df_history = pd.DataFrame(history_values[1:], columns=history_values[0])
+        else:
+             df_history = pd.DataFrame()
+             
     except Exception:
         df_history = pd.DataFrame()
         st.warning(f"履歴シートの読み込みに失敗しました。")
@@ -1069,18 +1114,18 @@ with tab4:
     st.header("4️⃣ 使用可能日記全文表示・コピペ用") 
 
     try:
-        # 【✨修正: テンプレート用のSpreadsheet IDで接続】
+        # テンプレート用のSpreadsheet IDで接続し、全データを文字列として取得
         client = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
         template_spreadsheet = client.open_by_key(USABLE_DIARY_SHEET_ID)
         ws_templates = template_spreadsheet.worksheet(USABLE_DIARY_SHEET)
         
-        records = ws_templates.get_all_records()
+        all_values = ws_templates.get_all_values()
         
-        if not records:
+        if not all_values or len(all_values) <= 1:
             st.warning("⚠️ **テンプレートシートが空**です。データが入力されているか確認してください。")
             df_templates = pd.DataFrame() 
         else:
-            df_templates = pd.DataFrame(records)
+            df_templates = pd.DataFrame(all_values[1:], columns=all_values[0])
 
         # DataFrameが空でない場合のみフィルター処理と表示を行う
         if not df_templates.empty:
