@@ -15,7 +15,7 @@ SCOPES = ['https://www.googleapis.com/auth/spreadsheets',
           'https://www.googleapis.com/auth/drive']
 
 # ----------------------------------------------------------------------
-# 認証情報の読み込みと整形（改行なしのRAW文字列に対応）
+# 認証情報の読み込みと整形（Base64エンコードされたキーに対応）
 # ----------------------------------------------------------------------
 
 @st.cache_resource
@@ -24,7 +24,7 @@ def get_gspread_client() -> Client:
     Streamlit SecretsからGoogleサービスアカウント認証情報を取得し、
     gspreadクライアントを初期化します。
 
-    Secrets設定のTOML形式エラーを回避するため、private_key_rawから改行コードを復元します。
+    Secretsに保存されたBase64エンコードされたキーをデコードします。
     """
     
     # 認証情報を取得
@@ -41,38 +41,26 @@ def get_gspread_client() -> Client:
         info[key] = value
 
     # 🚨 修正ロジック：
-    # private_key_rawキーを探し、改行コードを復元して private_key キーに設定し直します。
-    if 'private_key_raw' in info and isinstance(info['private_key_raw'], str):
+    # Base64エンコードされたキー('ENCODED_KEY_STRING')を探し、デコードして 'private_key' キーに設定し直します。
+    if 'ENCODED_KEY_STRING' in info and isinstance(info['ENCODED_KEY_STRING'], str):
         try:
-            pk_content = info['private_key_raw']
+            encoded_key = info['ENCODED_KEY_STRING']
             
-            # --- 最終修正V2：文字列のクリーンアップをより厳密に ---
-            
-            # 1. Base64文字列の本体を抽出するためにヘッダーとフッターを削除
-            pk_content = pk_content.replace('-----BEGIN PRIVATE KEY-----', '')
-            pk_content = pk_content.replace('-----END PRIVATE KEY-----', '')
-            
-            # 2. Base64文字（英数字、+、/、=）以外のすべての文字（スペース、タブ、改行など）を削除
-            # これにより、Streamlit Secretsが自動挿入したノイズを完全に除去します
-            key_body_clean = re.sub(r'[^A-Za-z0-9+/=]', '', pk_content) 
-            
-            # 3. 64文字ごとに改行を挿入して、元のPEM形式（改行あり）に復元
-            reformatted_key_body = '\n'.join([key_body_clean[i:i+64] for i in range(0, len(key_body_clean), 64)])
-            
-            # 4. 全体を結合
-            pk_reformatted = "-----BEGIN PRIVATE KEY-----\n" + reformatted_key_body + "\n-----END PRIVATE KEY-----\n"
+            # Base64文字列をデコードし、元の秘密鍵文字列（改行含む）に復元
+            decoded_key_bytes = base64.b64decode(encoded_key)
+            decoded_key_string = decoded_key_bytes.decode('utf-8')
             
             # 認証クライアントが期待する private_key キーに設定
-            info['private_key'] = pk_reformatted
+            info['private_key'] = decoded_key_string
             
-            # デバッグのためにRAWキーは削除
-            del info['private_key_raw'] 
-            logging.info("private_key_rawから認証情報に復元しました。")
+            # RAWキー（エンコードされたキー）は削除
+            del info['ENCODED_KEY_STRING'] 
+            logging.info("Base64エンコードされたキーから認証情報に復元しました。")
         except Exception as e:
-            st.error(f"private_keyの文字列処理に失敗しました。キーの値が正しいか確認してください。エラー詳細: {e}")
+            st.error(f"Base64デコードまたはprivate_keyの復元に失敗しました。キーの値が正しいか確認してください。エラー詳細: {e}")
             st.stop()
     else:
-        st.error("Secretsに 'private_key_raw' キーが見つかりません。Secretsの設定を確認してください。")
+        st.error("Secretsに 'ENCODED_KEY_STRING' キーが見つかりません。Secretsの設定を確認してください。")
         st.stop()
 
 
@@ -87,7 +75,6 @@ def get_gspread_client() -> Client:
         if 'private_key' in debug_info:
             # private_keyは長いため、最初の50文字と最後の50文字のみ表示
             pk = debug_info['private_key']
-            # ここではBase64エンコードエラーの直前で止まっているはずなので、pkはまだ文字列です
             debug_info['private_key'] = pk[:50] + "..." + pk[-50:]
             
         st.error(f"Google認証情報の初期化に失敗しました。Secretsの内容が正しいか確認してください。エラー詳細: {e}")
@@ -131,12 +118,10 @@ with tab2:
     st.subheader("[app_config] 設定")
     st.json(st.secrets.get("app_config", {}))
     st.subheader("[google_secrets] のキー情報")
-    # private_key_rawを表示
+    # ENCODED_KEY_STRINGを表示
     debug_secrets = st.secrets.get("google_secrets", {}).copy()
-    if 'private_key_raw' in debug_secrets:
-        # このデバッグ表示では、クリーンアップ後の pk_reformatted ではなく、Secretsから取得した raw の状態を表示します。
-        # 長すぎるため、先頭と末尾を表示。
-        raw_key = debug_secrets['private_key_raw']
-        debug_secrets['private_key_raw'] = raw_key[:50] + "..." + raw_key[-50:]
+    if 'ENCODED_KEY_STRING' in debug_secrets:
+        raw_key = debug_secrets['ENCODED_KEY_STRING']
+        debug_secrets['ENCODED_KEY_STRING'] = raw_key[:50] + "..." + raw_key[-50:]
     st.json(debug_secrets)
     st.write("認証クライアントオブジェクトの存在確認: OK")
