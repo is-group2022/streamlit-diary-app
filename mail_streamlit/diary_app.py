@@ -416,7 +416,6 @@ with tab4:
         if not df_templates.empty:
             
             # フィルターUI
-            # st.columns([1, 1, 3]) の3要素すべてを使い切るように変更
             col_type, col_kind, col_spacer = st.columns([1, 1, 3]) 
             
             # シートに「日記種類」列が存在するか確認してからselectboxのオプションを作成
@@ -452,7 +451,7 @@ with tab4:
             st.dataframe(
                 filtered_df[valid_display_cols],
                 use_container_width=True,
-                height=None, # 高さを指定しないことで、内容に合わせて伸びるようにする
+                height='content', # 修正点: height='content' に変更
                 hide_index=True,
             )
         
