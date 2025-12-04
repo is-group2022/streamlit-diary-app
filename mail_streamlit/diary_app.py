@@ -88,12 +88,17 @@ st.title("📝 日記投稿管理 Web アプリ")
 
 # --- セッションステートの初期化 ---
 if 'diary_entries' not in st.session_state:
-    initial_entry = {header: "" for header in INPUT_HEADERS}
-    initial_entry['媒体'] = MEDIA_OPTIONS[0]
-    initial_entry['担当アカウント'] = ACCOUNT_OPTIONS[0]
+    initial_entry = {header: "" for header in INPUT_HEADERS if header not in ["媒体", "担当アカウント"]}
     initial_entry['画像ファイル'] = None 
     
     st.session_state.diary_entries = [initial_entry.copy() for _ in range(40)]
+
+# 全体設定の初期化（セッションステートで保持）
+if 'global_media' not in st.session_state:
+    st.session_state.global_media = MEDIA_OPTIONS[0]
+if 'global_account' not in st.session_state:
+    st.session_state.global_account = ACCOUNT_OPTIONS[0]
+
 
 tab1, tab2, tab3 = st.tabs(["① データ登録・画像アップロード", "② 下書き作成・実行", "③ 履歴の検索・修正・管理"])
 
@@ -104,7 +109,7 @@ tab1, tab2, tab3 = st.tabs(["① データ登録・画像アップロード", "�
 with tab1:
     st.header("1️⃣ データ登録とテンプレート参照")
     
-    # --- A. テンプレート参照 (別ページ化の案内を含む) ---
+    # --- A. テンプレート参照 ---
     st.subheader("💡 日記使用可能文（コピペ用）")
     
     st.info("💡 **アドバイス**: この表を別ウィンドウで開くには、**Streamlit アプリをマルチページ構成にする必要があります。** 現在は同じタブ内に表示します。")
@@ -125,7 +130,6 @@ with tab1:
         if selected_kind != "すべて":
             filtered_df = filtered_df[filtered_df['タイプ種類'] == selected_kind]
 
-        # データエディタで表形式表示（コピペを容易にする）
         st.dataframe(
             filtered_df[['タイトル', '本文', '日記種類', 'タイプ種類']],
             use_container_width=True,
@@ -141,21 +145,26 @@ with tab1:
     
     # --- B. 40件の日記データ入力 (常時展開・本文枠大) ---
     st.subheader("2️⃣ 登録用データ入力と画像アップロード (40件)")
+
+    # **媒体と担当アカウントの全体設定（全体適用）**
+    st.markdown("#### ⚙️ 全体設定")
+    cols_global = st.columns(2)
+    st.session_state.global_media = cols_global[0].selectbox("媒体 (全データ共通)", MEDIA_OPTIONS, key='global_media_select')
+    st.session_state.global_account = cols_global[1].selectbox("担当アカウント (全データ共通)", ACCOUNT_OPTIONS, key='global_account_select')
+    
     st.warning("⚠️ 画像をアップロードする際は、その行の**「投稿時間 (hhmm)」**と**「女の子の名前」**を必ず入力してください。ファイル名に使用されます。")
 
     with st.form("diary_registration_form"):
         
-        # ヘッダー行 (視認性向上のため手動で配置)
-        col_header = st.columns([1, 1, 1, 1, 2, 3, 1, 1.5, 2]) # 本文の幅を拡張 (2->3)
+        # ヘッダー行 (UIに表示される項目のみ)
+        col_header = st.columns([1, 1, 1, 2, 3, 1, 2]) 
         col_header[0].markdown("**エリア**")
         col_header[1].markdown("**店名**")
         col_header[2].markdown("**投稿時間**")
-        col_header[3].markdown("**媒体**")
-        col_header[4].markdown("**タイトル**")
-        col_header[5].markdown("**本文**")
-        col_header[6].markdown("**女の子名**")
-        col_header[7].markdown("**担当**")
-        col_header[8].markdown("📷 **画像アップロード**")
+        col_header[3].markdown("**タイトル**")
+        col_header[4].markdown("**本文**")
+        col_header[5].markdown("**女の子名**")
+        col_header[6].markdown("📷 **画像アップロード**")
 
         st.markdown("---") 
         
@@ -164,27 +173,22 @@ with tab1:
             entry = st.session_state.diary_entries[i]
             
             # 1行を構成する列を定義
-            cols = st.columns([1, 1, 1, 1, 2, 3, 1, 1.5, 2]) # 本文の幅を拡張 (2->3)
+            cols = st.columns([1, 1, 1, 2, 3, 1, 2]) 
             
             # --- テキスト入力（コピペしやすいように短く） ---
             entry['エリア'] = cols[0].text_input("エリア", value=entry['エリア'], key=f"エリア_{i}", label_visibility="collapsed")
             entry['店名'] = cols[1].text_input("店名", value=entry['店名'], key=f"店名_{i}", label_visibility="collapsed")
             entry['投稿時間'] = cols[2].text_input("投稿時間", value=entry['投稿時間'], key=f"時間_{i}", label_visibility="collapsed", placeholder="hhmm")
             
-            # 媒体プルダウン
-            entry['媒体'] = cols[3].selectbox("媒体", MEDIA_OPTIONS, index=MEDIA_OPTIONS.index(entry['媒体']) if entry['媒体'] in MEDIA_OPTIONS else 0, key=f"媒体_{i}", label_visibility="collapsed")
-
-            # タイトルと本文のサイズ調整
-            entry['タイトル'] = cols[4].text_area("タイトル", value=entry['タイトル'], key=f"タイトル_{i}", height=50, label_visibility="collapsed")
-            entry['本文'] = cols[5].text_area("本文", value=entry['本文'], key=f"本文_{i}", height=100, label_visibility="collapsed") # 本文の枠を大きく
-
-            entry['女の子の名前'] = cols[6].text_input("女の子名", value=entry['女の子の名前'], key=f"名_{i}", label_visibility="collapsed")
+            # 媒体、担当アカウントは全体設定になったため、ここでは表示しない
             
-            # 担当アカウントプルダウン
-            entry['担当アカウント'] = cols[7].selectbox("担当アカウント", ACCOUNT_OPTIONS, index=ACCOUNT_OPTIONS.index(entry['担当アカウント']) if entry['担当アカウント'] in ACCOUNT_OPTIONS else 0, key=f"アカ_{i}", label_visibility="collapsed")
+            entry['タイトル'] = cols[3].text_area("タイトル", value=entry['タイトル'], key=f"タイトル_{i}", height=50, label_visibility="collapsed")
+            entry['本文'] = cols[4].text_area("本文", value=entry['本文'], key=f"本文_{i}", height=100, label_visibility="collapsed") 
 
+            entry['女の子の名前'] = cols[5].text_input("女の子名", value=entry['女の子の名前'], key=f"名_{i}", label_visibility="collapsed")
+            
             # --- 画像アップロード ---
-            with cols[8]:
+            with cols[6]:
                 uploaded_file = st.file_uploader(
                     f"No.{i+1}画像",
                     type=['png', 'jpg', 'jpeg'],
@@ -205,8 +209,11 @@ with tab1:
         if submitted:
             valid_entries_and_files = []
             
+            # 有効なデータ行の抽出
             for entry in st.session_state.diary_entries:
-                is_data_filled = any(entry.get(h) and entry.get(h) != "" for h in INPUT_HEADERS)
+                # ユーザー入力の必須項目（媒体/担当アカウントを除く6項目）のうち、何か一つでも入力があれば有効
+                input_check_headers = ["エリア", "店名", "投稿時間", "女の子の名前", "タイトル", "本文"]
+                is_data_filled = any(entry.get(h) and entry.get(h) != "" for h in input_check_headers)
                 
                 if is_data_filled:
                     valid_entries_and_files.append(entry)
@@ -244,10 +251,26 @@ with tab1:
                 
                 final_data = []
                 for entry in valid_entries_and_files:
-                    row_data = [entry[h] for h in INPUT_HEADERS]
+                    
+                    # ユーザー入力6項目をリスト化 (媒体、担当アカウントを除く)
+                    row_data = [
+                        entry['エリア'],
+                        entry['店名'],
+                        # ここで全体設定の値を挿入
+                        st.session_state.global_media, 
+                        entry['投稿時間'],
+                        entry['女の子の名前'],
+                        entry['タイトル'],
+                        entry['本文'],
+                        # ここで全体設定の値を挿入
+                        st.session_state.global_account 
+                    ]
+                    
+                    # ステータス列（'未実行'）3項目を追加 (合計11項目)
                     row_data.extend(['未実行', '未実行', '未実行']) 
                     final_data.append(row_data)
 
+                # シートの末尾に追加
                 ws.append_rows(final_data, value_input_option='USER_ENTERED')
                 
                 st.success(f"🎉 **{len(valid_entries_and_files)}件**のテキストデータ登録が完了しました。")
