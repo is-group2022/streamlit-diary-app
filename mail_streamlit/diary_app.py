@@ -22,40 +22,39 @@ import google.auth
 # ==============================================================================
 
 try:
-    # 🚨 StreamlitのSecretsから設定値を読み込む（secrets.tomlのトップレベルキー）
-    SPREADSHEET_ID = st.secrets.app_config.SPREADSHEET_ID
-    WORKSHEET_NAME = st.secrets.app_config.WORKSHEET_NAME
-    DRIVE_FOLDER_ID = st.secrets.app_config.DRIVE_FOLDER_ID
-    DRAFT_SUBJECT_TEMPLATE = st.secrets.app_config.DRAFT_SUBJECT_TEMPLATE
-    DRAFT_DEFAULT_TO_ADDRESS = st.secrets.app_config.DRAFT_DEFAULT_TO_ADDRESS
+    # 🚨 ここを修正！TOMLのセクション[app_config]は辞書形式で読み込む必要がある
+    app_config = st.secrets["app_config"] 
+    
+    SPREADSHEET_ID = app_config["SPREADSHEET_ID"]
+    WORKSHEET_NAME = app_config["WORKSHEET_NAME"]
+    DRIVE_FOLDER_ID = app_config["DRIVE_FOLDER_ID"]
+    DRAFT_SUBJECT_TEMPLATE = app_config["DRAFT_SUBJECT_TEMPLATE"]
+    DRAFT_DEFAULT_TO_ADDRESS = app_config["DRAFT_DEFAULT_TO_ADDRESS"]
 
     # ==============================================================================
     # 2. 認証情報の設定 (SecretsからJSON文字列として取得)
     # ==============================================================================
 
-    # 🚨 secrets.tomlに格納したJSON文字列全体を読み込みます
+    # google_secretsは辞書として直接読み込める
     raw_json_string = st.secrets["google_secrets"]
     
-    # 🚨 JSON文字列をPython辞書に変換します
+    # JSON文字列をPython辞書に変換
     SERVICE_ACCOUNT_KEY = json.loads(raw_json_string)
     
 except KeyError as e:
-    # 🚨 デバッグ用！Secretsに何があるかを表示する
-    st.error(f"🚨 API初期化エラー: Secretsに必須キー '{e.args[0]}' が見つかりません。")
-    st.info("secrets.toml の内容をチェックしてください。特に以下のキーが存在するか確認！")
+    # 🚨 認証情報または設定キーが見つからない場合
+    key_name = e.args[0]
+    st.error(f"🚨 API初期化エラー: Secretsに必須キー '{key_name}' が見つかりません。")
+    st.info("`.streamlit/secrets.toml` のファイル名と、中身のキー（`[app_config]` や `google_secrets`）を確認してください！")
     
-    # 読み込めたキーの一覧を表示
     loaded_keys = list(st.secrets.keys())
     if loaded_keys:
-        st.warning(f"現在、Secretsから読み込めているキーは: {loaded_keys}")
-        st.caption("もしこのリストに 'google_secrets' が無かったら、secrets.toml のファイル名または内容が間違っている可能性が高いよ！")
-    else:
-        st.error("Secretsから何も読み込めていません。設定ファイル (.streamlit/secrets.toml) が存在するか、内容が空でないか確認してください。")
+        st.warning(f"現在、Secretsから読み込めているトップレベルキーは: {loaded_keys}")
     st.stop()
 
 except json.JSONDecodeError as e:
     st.error(f"🚨 JSONパースエラー: secrets.toml に格納されたJSON文字列の形式が不正です。詳細: {e}")
-    st.info("secrets.toml の `google_secrets` キーの値が、完全なJSON形式で囲まれているか確認してください。")
+    st.info("`google_secrets` キーの値が、完全なJSON形式（`{...}`）でトリプルクォート（`"""`）で囲まれているか確認してください。")
     st.stop()
 except Exception as e:
     st.error(f"🚨 API初期化エラー: 予期せぬエラーが発生しました。詳細: {e}")
