@@ -18,7 +18,7 @@ from google.oauth2.service_account import Credentials
 import google.auth
 
 # ==============================================================================
-# ⚠️ 1. 設定情報 (以前の会話履歴から設定値を復元)
+# ⚠️ 1. 設定情報
 # ==============================================================================
 
 # スプレッドシートID: 日記マスターシート
@@ -41,21 +41,15 @@ try:
     # 秘密鍵の値をSecretsから取得
     raw_key = st.secrets["private_key"]
     
-    # 🚨 Base64エラー回避のためのクリーンアップロジックを強化 🚨
-    # 1. BEGIN/ENDマーカー、通常の改行(\n)、そしてエスケープされた改行(\\n)を徹底的に削除し、純粋なBase64本体を抽出
-    body = raw_key.replace('-----BEGIN PRIVATE KEY-----', '') \
-                  .replace('-----END PRIVATE KEY-----', '') \
-                  .replace('\n', '') \
-                  .replace('\\n', '') \
-                  .strip()
-    
-    # 2. Base64のパディングが壊れていてもデコードできるように、パディング文字 '=' を強制追加
-    # これが 'Incorrect padding' エラーを回避する最終手段です。
+    # 🚨 最終手段のロジック: Secretsに「改行なしの純粋なBase64文字列」が格納されていることを前提とする。
+    # Base64文字列の末尾のパディング('=')が欠けていてもデコードできるように、強制的にパディングを追加する。
+    body = raw_key.strip()
     missing_padding = len(body) % 4
     if missing_padding:
         body += '=' * (4 - missing_padding)
 
-    # 3. 再びPEM形式（Google認証が期待する形式）に再構築 (64文字ごとに改行を挿入)
+    # PEM形式（Google認証が期待する形式）に再構築 (64文字ごとに改行を挿入)
+    # これにより、Base64デコードに失敗しない状態のデータが作られる
     pem_body = textwrap.fill(body, width=64)
     private_key_value = f"-----BEGIN PRIVATE KEY-----\n{pem_body}\n-----END PRIVATE KEY-----"
 
