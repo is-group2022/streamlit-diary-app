@@ -45,7 +45,8 @@ except KeyError as e:
     # 🚨 認証情報または設定キーが見つからない場合
     key_name = e.args[0]
     st.error(f"🚨 API初期化エラー: Secretsに必須キー '{key_name}' が見つかりません。")
-    st.info("`.streamlit/secrets.toml` のファイル名と、中身のキー（`[app_config]` や `google_secrets`）を確認してください！")
+    # 修正: 全角括弧を半角に
+    st.info("`.streamlit/secrets.toml` のファイル名と、中身のキー (`[app_config]` や `google_secrets`) を確認してください！")
     
     loaded_keys = list(st.secrets.keys())
     if loaded_keys:
@@ -54,7 +55,8 @@ except KeyError as e:
 
 except json.JSONDecodeError as e:
     st.error(f"🚨 JSONパースエラー: secrets.toml に格納されたJSON文字列の形式が不正です。詳細: {e}")
-    st.info("`google_secrets` キーの値が、完全なJSON形式（`{...}`）でトリプルクォート（`"""`）で囲まれているか確認してください。")
+    # 修正: 全角括弧を半角に
+    st.info("`google_secrets` キーの値が、完全なJSON形式 (`{...}`) でトリプルクォート (`"""`) で囲まれているか確認してください。")
     st.stop()
 except Exception as e:
     st.error(f"🚨 API初期化エラー: 予期せぬエラーが発生しました。詳細: {e}")
