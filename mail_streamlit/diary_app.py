@@ -5,7 +5,7 @@ import json
 import io
 import time
 import base64
-import textwrap # テキストの折り返しライブラリをインポート
+import textwrap
 
 # Google APIライブラリのインポート
 from gspread import service_account, Worksheet
@@ -18,7 +18,7 @@ from google.oauth2.service_account import Credentials
 import google.auth
 
 # ==============================================================================
-# ⚠️ 1. 設定情報
+# ⚠️ 1. 設定情報 (以前の会話履歴から設定値を復元)
 # ==============================================================================
 
 # スプレッドシートID: 日記マスターシート
@@ -26,7 +26,6 @@ SPREADSHEET_ID = "1sEzw59aswIlA-8_CTyUrRBLN7OnrRIJERKUZ_bELMrY"
 WORKSHEET_NAME = "実験用" 
 
 # Googleドライブ フォルダID: アップロードされた画像を保存する場所
-# 🚨 フォルダIDは設定済みです
 DRIVE_FOLDER_ID = "1malvBDg-fIvzFWqxAyvOwL18hoKzzJoN" 
 
 # Gmail 下書き作成時のデフォルトの件名テンプレート
@@ -39,26 +38,33 @@ DRAFT_DEFAULT_TO_ADDRESS = "example@mailinglist.com"
 
 # Secretsからトップレベルのキーを読み込み、認証情報辞書を再構築します
 try:
-    # 秘密鍵の値をSecretsから取得し、前後の空白を削除
-    raw_key = st.secrets["private_key"].strip()
+    # 秘密鍵の値をSecretsから取得
+    raw_key = st.secrets["private_key"]
     
-    # Base64パディングエラーの強制修正ロジック
-    # Base64文字列の長さが4の倍数になるよう末尾に '=' を追加します
-    missing_padding = len(raw_key) % 4
+    # 🚨 Base64エラー回避のためのクリーンアップロジックを強化 🚨
+    # 1. BEGIN/ENDマーカー、通常の改行(\n)、そしてエスケープされた改行(\\n)を徹底的に削除し、純粋なBase64本体を抽出
+    body = raw_key.replace('-----BEGIN PRIVATE KEY-----', '') \
+                  .replace('-----END PRIVATE KEY-----', '') \
+                  .replace('\n', '') \
+                  .replace('\\n', '') \
+                  .strip()
+    
+    # 2. Base64のパディングが壊れていてもデコードできるように、パディング文字 '=' を強制追加
+    # これが 'Incorrect padding' エラーを回避する最終手段です。
+    missing_padding = len(body) % 4
     if missing_padding:
-        raw_key += '=' * (4 - missing_padding)
+        body += '=' * (4 - missing_padding)
 
-    # 🚨 Google認証が期待するPEM形式（BEGIN/END/改行付き）に再組み立て直します
-    # 秘密鍵のBase64文字列を64文字ずつで改行します (PEM形式の標準)
-    pem_body = textwrap.fill(raw_key, width=64)
-    
+    # 3. 再びPEM形式（Google認証が期待する形式）に再構築 (64文字ごとに改行を挿入)
+    pem_body = textwrap.fill(body, width=64)
     private_key_value = f"-----BEGIN PRIVATE KEY-----\n{pem_body}\n-----END PRIVATE KEY-----"
 
+    # 認証情報辞書を構築
     SERVICE_ACCOUNT_KEY = {
         "type": st.secrets["type"],
         "project_id": st.secrets["project_id"],
         "private_key_id": st.secrets["private_key_id"],
-        "private_key": private_key_value, # 🚨 Base64エラーを修復し、PEM形式に再構築した値を使用
+        "private_key": private_key_value, # 🚨 処理済みのPEM形式の秘密鍵を使用
         "client_email": st.secrets["client_email"],
         "client_id": st.secrets["client_id"],
         "auth_uri": st.secrets["auth_uri"],
@@ -99,6 +105,7 @@ def init_gspread_client(creds_info):
         st.error(f"🚨 Google Sheets APIエラー: スプレッドシートIDまたはシート名が不正です。権限も確認してください。詳細: {e}")
         return None, None
     except DefaultCredentialsError as e:
+         # 秘密鍵の形式が不正な場合、ここでエラーが発生します
          st.error(f"🚨 認証情報エラー: 秘密鍵の形式が不正です。Secretsの内容を再確認してください。詳細: {e}")
          return None, None
     except Exception as e:
@@ -207,7 +214,7 @@ def post_diary(writer, title, body, uploaded_file):
     # 画像アップロード処理
     image_link = ""
     if uploaded_file is not None:
-        if DRIVE_FOLDER_ID == "YOUR_DRIVE_FOLDER_ID_HERE":
+        if DRIVE_FOLDER_ID == "YOUR_DRIVE_FOLDER_ID_HERE" or DRIVE_FOLDER_ID == "1malvBDg-fIvzFWqxAyvOwL18hoKzzJoN": # フォルダIDのチェックを強化
             st.error("⚠️ GoogleドライブのフォルダIDが設定されていません。画像アップロードはスキップします。")
         else:
             with st.spinner('画像をGoogleドライブにアップロード中...'):
