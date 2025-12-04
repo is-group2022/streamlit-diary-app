@@ -46,20 +46,20 @@ def get_gspread_client() -> Client:
         try:
             pk_content = info['private_key_raw']
             
-            # --- 最終修正：文字列のクリーンアップを追加 ---
+            # --- 最終修正V2：文字列のクリーンアップをより厳密に ---
             
-            # 1. Base64文字列の本体を抽出するためにヘッダーとフッターを削除し、改行・スペース・制御文字を全て除去
+            # 1. Base64文字列の本体を抽出するためにヘッダーとフッターを削除
             pk_content = pk_content.replace('-----BEGIN PRIVATE KEY-----', '')
             pk_content = pk_content.replace('-----END PRIVATE KEY-----', '')
             
-            # Base64文字以外のすべて（スペース、タブ、改行など）を削除
-            # gspread/google-authが期待する形式（改行を挟んだ形式）に戻す
-            key_body_clean = re.sub(r'[^\w+/=]', '', pk_content) 
+            # 2. Base64文字（英数字、+、/、=）以外のすべての文字（スペース、タブ、改行など）を削除
+            # これにより、Streamlit Secretsが自動挿入したノイズを完全に除去します
+            key_body_clean = re.sub(r'[^A-Za-z0-9+/=]', '', pk_content) 
             
-            # 64文字ごとに改行を挿入して、元のPEM形式（改行あり）に復元
+            # 3. 64文字ごとに改行を挿入して、元のPEM形式（改行あり）に復元
             reformatted_key_body = '\n'.join([key_body_clean[i:i+64] for i in range(0, len(key_body_clean), 64)])
             
-            # 全体を結合
+            # 4. 全体を結合
             pk_reformatted = "-----BEGIN PRIVATE KEY-----\n" + reformatted_key_body + "\n-----END PRIVATE KEY-----\n"
             
             # 認証クライアントが期待する private_key キーに設定
@@ -87,6 +87,7 @@ def get_gspread_client() -> Client:
         if 'private_key' in debug_info:
             # private_keyは長いため、最初の50文字と最後の50文字のみ表示
             pk = debug_info['private_key']
+            # ここではBase64エンコードエラーの直前で止まっているはずなので、pkはまだ文字列です
             debug_info['private_key'] = pk[:50] + "..." + pk[-50:]
             
         st.error(f"Google認証情報の初期化に失敗しました。Secretsの内容が正しいか確認してください。エラー詳細: {e}")
@@ -133,6 +134,9 @@ with tab2:
     # private_key_rawを表示
     debug_secrets = st.secrets.get("google_secrets", {}).copy()
     if 'private_key_raw' in debug_secrets:
-        debug_secrets['private_key_raw'] = debug_secrets['private_key_raw'][:50] + "..." 
+        # このデバッグ表示では、クリーンアップ後の pk_reformatted ではなく、Secretsから取得した raw の状態を表示します。
+        # 長すぎるため、先頭と末尾を表示。
+        raw_key = debug_secrets['private_key_raw']
+        debug_secrets['private_key_raw'] = raw_key[:50] + "..." + raw_key[-50:]
     st.json(debug_secrets)
     st.write("認証クライアントオブジェクトの存在確認: OK")
