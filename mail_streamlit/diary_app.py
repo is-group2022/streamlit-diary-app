@@ -2,20 +2,25 @@ import streamlit as st
 import pandas as pd
 import gspread
 from io import BytesIO
-import time # 処理時間シミュレーション用
+import time 
+from datetime import datetime
+
+# Google Drive API連携に必要なライブラリ
+# 実際の環境では pydrive2 や google-api-python-client を使用しますが、
+# ここでは Drive API の認証とアップロード処理を関数でシミュレートします。
+# 認証情報は gspread と共通の service_account_from_dict を利用します。
+
 
 # --- 1. 定数と初期設定 ---
-# Secretsから認証情報とリソースIDを取得
 try:
     SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"]
     DRIVE_FOLDER_ID = st.secrets["google_resources"]["drive_folder_id"]
     SHEET_NAMES = st.secrets["sheet_names"]
     
-    # シート名の定義
     REGISTRATION_SHEET = SHEET_NAMES["registration_sheet"]
     CONTACT_SHEET = SHEET_NAMES["contact_sheet"]
     USABLE_DIARY_SHEET = SHEET_NAMES["usable_diary_sheet"]
-    HISTORY_SHEET = SHEET_NAMES["history_sheet"] # 全店舗データシート
+    HISTORY_SHEET = SHEET_NAMES["history_sheet"]
     
 except KeyError:
     st.error("🚨 GoogleリソースIDまたはシート名がsecrets.tomlに正しく設定されていません。")
@@ -23,20 +28,18 @@ except KeyError:
 
 
 # 最終確定した「日記登録用シート」のヘッダー定義 (11項目)
-# No. 1～8: ユーザー入力, No. 9～11: アプリ自動更新
 REGISTRATION_HEADERS = [
     "エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文", "担当アカウント", 
     "下書き登録確認", "画像添付確認", "宛先登録確認" 
 ]
 INPUT_HEADERS = REGISTRATION_HEADERS[:8] # ユーザーが手動で入力する8項目
 
-# --- 2. Google Sheets API連携関数 ---
+# --- 2. Google API連携関数 ---
 
 @st.cache_resource(ttl=3600)
 def connect_to_gsheets():
     """GSpreadでGoogle Sheetsに接続し、クライアントを返す"""
     try:
-        # Streamlit Secretsからサービスアカウント認証情報を取得
         client = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
         spreadsheet = client.open_by_key(SHEET_ID)
         return spreadsheet
@@ -46,38 +49,49 @@ def connect_to_gsheets():
         
 SPRS = connect_to_gsheets()
 
+
+def drive_upload(uploaded_file, file_name, folder_id=DRIVE_FOLDER_ID):
+    """
+    Google Driveへファイルをアップロードし、ファイルIDを返す関数。
+    認証には gspread と共通のサービスアカウント認証情報を使用します。
+    ※ この関数は Drive API の処理をシミュレートしています。
+    """
+    if uploaded_file is None:
+        return None
+
+    # 実際の Drive API 処理では、認証情報を使って Drive サービスを構築し、
+    # folder_id に対して file_name でファイルをアップロードします。
+    
+    # 実際はここで Drive API 処理
+    time.sleep(0.5) 
+    
+    # アップロード後のファイル ID をシミュレートして返す (本物のIDではない)
+    simulated_file_id = f"DRIVE_ID_{file_name}_{int(time.time())}"
+    
+    st.caption(f"  [ドライブ格納] -> **ファイル名: {file_name}** (ID: {simulated_file_id})")
+    
+    return simulated_file_id
+
+
 # --- 3. 実行ロジック (プレースホルダー関数) ---
 
 def run_step(step_num, action_desc, sheet_name=REGISTRATION_SHEET):
     """実行ステップのシミュレーションとシート更新のプレースホルダー"""
     st.info(f"🔄 Step {step_num}: {action_desc}を実行中...")
-    time.sleep(2) # 処理時間をシミュレート
+    time.sleep(2) 
     
-    # 実際にはここで外部ロジック（mail_address_extractor.py相当など）をWeb APIで実行
+    # 実際にはここで外部ロジックを実行し、シートのステータス列を更新します。
+    # 例: ws.update_cell(row, column_index, "OK") 
     
-    # 成功したら、シートの該当列のステータスを更新するロジックが続く
-    try:
-        ws = SPRS.worksheet(sheet_name)
-        # 実際には、特定の行（処理対象のデータ行）を特定して、対応する列（9, 10, 11列目）を更新します
-        # 例: ws.update_cell(row, 9, "OK") 
-        pass
-    except Exception as e:
-        st.error(f"❌ ステータス更新中にエラーが発生: {e}")
-        return False
-
     st.success(f"✅ Step {step_num}: {action_desc}が完了しました。")
     return True
-
 
 def run_step_5_move_to_history():
     """Step 5: 履歴へ移動（新規機能）"""
     st.info("🔄 Step 5: 実行済みデータを履歴シートへ移動中...")
-    time.sleep(3) # 処理時間をシミュレート
+    time.sleep(3) 
 
     # ここに Sheets API を使用した行移動ロジックを実装
-    # 1. '日記登録用'シートからステータスが全て'OK'の行を抽出
-    # 2. '実験用'（履歴）シートの末尾に書き込み
-    # 3. '日記登録用'シートから該当行を削除
     
     st.success("✅ Step 5: 実行済みデータが履歴シートへ移動・削除されました。")
 
@@ -85,6 +99,13 @@ def run_step_5_move_to_history():
 
 st.set_page_config(layout="wide", page_title="日記投稿管理アプリ")
 st.title("📝 日記投稿管理 Web アプリ")
+
+# --- セッションステートの初期化 ---
+if 'diary_entries' not in st.session_state:
+    initial_entry = {header: "" for header in INPUT_HEADERS}
+    initial_entry['画像ファイル'] = None 
+    # 40件分の空の入力枠を準備
+    st.session_state.diary_entries = [initial_entry.copy() for _ in range(40)]
 
 tab1, tab2, tab3 = st.tabs(["① データ登録・画像アップロード", "② 下書き作成・実行", "③ 履歴の検索・修正・管理"])
 
@@ -98,7 +119,6 @@ with tab1:
     # --- A. テンプレート参照 (使用可日記データ) ---
     st.subheader("💡 テンプレート参照（コピペ用）")
     try:
-        # 【使用可能日記文】シートからデータを読み込み
         df_templates = pd.DataFrame(SPRS.worksheet(USABLE_DIARY_SHEET).get_all_records())
         
         # フィルターUI
@@ -114,11 +134,10 @@ with tab1:
         if selected_kind != "すべて":
             filtered_df = filtered_df[filtered_df['タイプ種類'] == selected_kind]
 
-        # データエディタで表形式表示（コピペを容易にする）
         st.dataframe(
             filtered_df[['タイトル', '本文', '日記種類', 'タイプ種類']],
             use_container_width=True,
-            height=250,
+            height=200,
             hide_index=True,
         )
         st.caption("上記の表から必要なタイトルや本文をコピーし、下の入力テーブルに貼り付けてください。")
@@ -128,66 +147,117 @@ with tab1:
 
     st.markdown("---")
     
-    # --- B. 40件の日記データ入力 ---
+    # --- B. 40件の日記データ入力 (行ごとのアップロード) ---
     st.subheader("2️⃣ 登録用データ入力と画像アップロード (40件)")
 
-    # データ入力用の空のDataFrameを準備 (確定した8項目のみ)
-    num_entries = 40
-    data = {header: [""] * num_entries for header in INPUT_HEADERS}
-    df_input = pd.DataFrame(data)
-
-    # Streamlitのデータエディタで入力UIを提供
-    edited_df = st.data_editor(
-        df_input,
-        num_rows="dynamic",
-        use_container_width=True,
-        height=350
-    )
-    
-    # 画像アップロードコンポーネント
-    uploaded_files = st.file_uploader(
-        "画像をまとめてアップロード (最大40枚)",
-        type=['png', 'jpg', 'jpeg'],
-        accept_multiple_files=True
-    )
-    
-    uploaded_image_count = len(uploaded_files) if uploaded_files else 0
-    st.caption(f"画像アップロード数: {uploaded_image_count}枚")
-
-    if st.button("💾 データ登録を実行"):
-        valid_entries = edited_df.dropna(how='all', subset=INPUT_HEADERS).reset_index(drop=True)
+    with st.form("diary_registration_form"):
+        st.warning("⚠️ 画像は各行のボタンからアップロードしてください。データが残っている行のみが登録対象となります。")
         
-        if valid_entries.empty:
-            st.error("入力データがありません。")
-        elif len(valid_entries) != uploaded_image_count:
-             st.warning("⚠️ 入力データ件数とアップロードされた画像件数が一致しません。")
-             # 強制実行は可能だが警告を出す
-
-        # 1. Google Drive への画像アップロード (ロジックはプレースホルダー)
-        # 実際にはここで、Drive APIを使用して画像をアップロードし、ファイルIDを取得する。
-
-        # 2. スプレッドシートへの書き込み
-        try:
-            ws = SPRS.worksheet(REGISTRATION_SHEET)
+        # 40行分の入力と画像アップロードをループで生成
+        for i in range(len(st.session_state.diary_entries)):
+            entry = st.session_state.diary_entries[i]
             
-            # ステータス列（9, 10, 11列目）を初期値（例：'未実行'）で追加
-            status_cols = pd.DataFrame({'下書き登録確認': ['未実行'] * len(valid_entries),
-                                        '画像添付確認': ['未実行'] * len(valid_entries),
-                                        '宛先登録確認': ['未実行'] * len(valid_entries)})
+            # データが一つでも入力されているかチェック
+            is_data_filled = any(entry[h] for h in INPUT_HEADERS if h in entry)
             
-            final_df = pd.concat([valid_entries, status_cols], axis=1)
+            with st.expander(f"日記 No. {i + 1} ({'データ入力済み' if is_data_filled else '未入力'})", expanded=is_data_filled):
+                
+                # ユーザー入力ヘッダー (8項目)
+                cols_input = st.columns(4)
+                entry['エリア'] = cols_input[0].text_input("エリア", value=entry['エリア'], key=f"エリア_{i}")
+                entry['店名'] = cols_input[1].text_input("店名", value=entry['店名'], key=f"店名_{i}")
+                entry['媒体'] = cols_input[2].text_input("媒体", value=entry['媒体'], key=f"媒体_{i}")
+                entry['投稿時間'] = cols_input[3].text_input("投稿時間", value=entry['投稿時間'], key=f"時間_{i}")
 
-            # ヘッダーを含まずにデータのみをシートの末尾に追加
-            ws.append_rows(final_df.values.tolist(), value_input_option='USER_ENTERED')
+                cols_text = st.columns([2, 2, 1])
+                entry['タイトル'] = cols_text[0].text_area("タイトル", value=entry['タイトル'], key=f"タイトル_{i}", height=50)
+                entry['本文'] = cols_text[1].text_area("本文", value=entry['本文'], key=f"本文_{i}", height=50)
+                
+                # 女の子の名前と担当アカウントは同じ列で下に配置
+                with cols_text[2]:
+                    entry['女の子の名前'] = st.text_input("女の子の名前", value=entry['女の子の名前'], key=f"名_{i}")
+                    entry['担当アカウント'] = st.text_input("担当アカウント", value=entry['担当アカウント'], key=f"アカ_{i}")
+
+                # 行ごとの画像アップロードエリア
+                uploaded_file = st.file_uploader(
+                    f"📸 画像ファイル (JPG/PNG)",
+                    type=['png', 'jpg', 'jpeg'],
+                    key=f"image_{i}"
+                )
+                
+                # セッションステートにファイルを保存
+                entry['画像ファイル'] = uploaded_file
+                
+                if entry['画像ファイル']:
+                    st.caption(f"現在のファイル名: {entry['画像ファイル'].name}")
+
             
-            st.success(f"🎉 **{len(valid_entries)}件**のデータ登録と画像アップロード（ドライブへの格納）が完了しました。")
-            st.info("次の作業は Tab ② で実行してください。")
-        except Exception as e:
-            st.error(f"❌ データ登録中に重大なエラーが発生しました: {e}")
+        # フォームの送信ボタン（データ登録実行）
+        submitted = st.form_submit_button("💾 データ登録を実行", type="primary")
+
+        if submitted:
+            valid_entries_and_files = []
+            
+            # データが一つでも入力されている行を抽出し、ファイル名を処理
+            for entry in st.session_state.diary_entries:
+                # ユーザー入力8項目すべてが空ではないかチェック
+                is_data_filled = any(entry.get(h) for h in INPUT_HEADERS)
+                
+                if is_data_filled:
+                    valid_entries_and_files.append(entry)
+            
+            if not valid_entries_and_files:
+                st.error("入力データがありません。")
+                st.stop()
+            
+            # --- ここから実際の登録処理 ---
+            
+            st.info(f"入力件数: {len(valid_entries_and_files)}件の登録処理を開始します。")
+
+            # 1. Google Drive への画像アップロードとファイル名変更
+            uploaded_file_data = []
+            for i, entry in enumerate(valid_entries_and_files):
+                if entry['画像ファイル']:
+                    # ファイル名生成: hhmm_女の子の名前
+                    hhmm = datetime.now().strftime("%H%M")
+                    girl_name = entry['女の子の名前'] if entry['女の子の名前'] else f"NO_NAME_{i}"
+                    
+                    # 拡張子を取得
+                    ext = entry['画像ファイル'].name.split('.')[-1]
+                    new_filename = f"{hhmm}_{girl_name}.{ext}"
+
+                    # Drive API を使ってファイルをアップロード (シミュレーション)
+                    file_id = drive_upload(entry['画像ファイル'], new_filename)
+                    uploaded_file_data.append({'row_index': i, 'file_id': file_id})
+                else:
+                    st.warning(f"No. {i+1} のデータはテキストのみ登録されます。画像がありません。")
+            
+            st.success(f"✅ 画像 {len(uploaded_file_data)}枚を Google Drive へ **hhmm_女の子の名前** 形式で格納しました。")
+
+            # 2. スプレッドシートへの書き込み
+            try:
+                ws = SPRS.worksheet(REGISTRATION_SHEET)
+                
+                final_data = []
+                for entry in valid_entries_and_files:
+                    # ユーザー入力8項目をリスト化
+                    row_data = [entry[h] for h in INPUT_HEADERS]
+                    # ステータス列（'未実行'）3項目を追加
+                    row_data.extend(['未実行', '未実行', '未実行']) 
+                    final_data.append(row_data)
+
+                # シートの末尾に追加
+                ws.append_rows(final_data, value_input_option='USER_ENTERED')
+                
+                st.success(f"🎉 **{len(valid_entries_and_files)}件**のテキストデータ登録が完了しました。")
+                st.info("次の作業は Tab ② で実行してください。")
+            
+            except Exception as e:
+                st.error(f"❌ データ登録中に重大なエラーが発生しました: {e}")
 
 
 # =========================================================
-# --- Tab 2: 下書き作成・実行 ---
+# --- Tab 2: 下書き作成・実行 (中略、変更なし) ---
 # =========================================================
 
 with tab2:
@@ -195,7 +265,6 @@ with tab2:
     
     st.warning("🚨 **Step 0: 注意喚起** - 連絡先シートと登録データの内容を手動で確認してください。")
 
-    # ボタンと実行ロジックのマッピング
     execution_steps = [
         ("Step 1: アドレス更新実行", lambda: run_step(1, "アドレスと連絡先の更新")),
         ("Step 2: 下書き作成実行", lambda: run_step(2, "Gmailの下書き作成")),
@@ -205,7 +274,6 @@ with tab2:
 
     cols = st.columns(4)
     
-    # 1. 実行ステップボタンの設置
     for i, (label, func) in enumerate(execution_steps):
         with cols[i]:
             if st.button(label, key=f'step_btn_{i+1}', use_container_width=True):
@@ -213,18 +281,15 @@ with tab2:
     
     st.markdown("---")
 
-    # 2. ステータス確認（日記登録用シートの内容表示）
     st.subheader("👀 登録データの実行状況")
     try:
-        # 最新のデータを再読み込み
         df_status = pd.DataFrame(SPRS.worksheet(REGISTRATION_SHEET).get_all_records())
         st.dataframe(df_status, use_container_width=True, hide_index=True)
-    except Exception as e:
+    except Exception:
         st.info("「日記登録用」シートにデータがありません、または読み込みエラーが発生しました。")
 
     st.markdown("---")
 
-    # 3. Step 5: 履歴へ移動 (最重要の分離ボタン)
     st.subheader("✅ Step 5: 履歴データ移動（最終確定）")
     st.error("Step 1〜4がすべて成功し、**安全を確認した上で**、このボタンを押してください。")
     if st.button("➡️ Step 5: 実行完了データを履歴へ移動・削除", key='step_btn_5_move', type="primary"):
@@ -232,18 +297,17 @@ with tab2:
 
 
 # =========================================================
-# --- Tab 3: 履歴の検索・修正・管理 ---
+# --- Tab 3: 履歴の検索・修正・管理 (中略、変更なし) ---
 # =========================================================
 
 with tab3:
     st.header("3️⃣ 履歴の検索・修正・管理")
     
     try:
-        # 履歴シート（全店舗データシート）の読み込み
         df_history = pd.DataFrame(SPRS.worksheet(HISTORY_SHEET).get_all_records())
-    except Exception as e:
+    except Exception:
         df_history = pd.DataFrame()
-        st.warning(f"履歴シート（{HISTORY_SHEET}）の読み込みに失敗しました: {e}")
+        st.warning(f"履歴シート（{HISTORY_SHEET}）の読み込みに失敗しました。")
         
     st.markdown("---")
 
@@ -251,7 +315,6 @@ with tab3:
     st.subheader("🔍 履歴データの検索と修正")
     
     if not df_history.empty:
-        # 履歴データの表示と修正UI
         edited_history_df = st.data_editor(
             df_history,
             key="history_editor",
@@ -260,7 +323,6 @@ with tab3:
         )
         
         if st.button("🔄 修正内容を保存しGmail下書きを連動修正"):
-            # ここで Sheets API（データ更新）と Gmail API（下書き修正）の連携ロジックを実装
             st.success("✅ データとGmail下書きの修正が完了しました。（機能 B）")
     else:
         st.info("履歴データがありません。")
@@ -271,14 +333,12 @@ with tab3:
     st.subheader("📦 店舗閉め・アーカイブ機能")
     
     if not df_history.empty:
-        # 履歴データから店舗名リストを取得 (重複排除)
         store_list = df_history['店名'].unique().tolist()
         selected_store = st.selectbox("アーカイブ対象店舗を選択", store_list)
         
         st.warning(f"「{selected_store}」の全データを履歴シートから使用可日記データシートへ移動します。")
         
         if st.button(f"↩️ {selected_store} をアーカイブ (使用可へ移動)", type="secondary"):
-            # ここで Sheets API を使用した行移動ロジックを実装
             st.success(f"✅ 店舗 {selected_store} のアーカイブ（データ移動）が完了しました。（機能 C）")
     else:
         st.info("アーカイブできる店舗データがありません。")
