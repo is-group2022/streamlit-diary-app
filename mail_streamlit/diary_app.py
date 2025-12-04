@@ -95,7 +95,7 @@ def run_step_5_move_to_history():
 # テーマ設定と初期化
 st.set_page_config(
     layout="wide", 
-    page_title="日記投稿管理アプリ",
+    page_title="写メ日記投稿管理アプリ", # <--- ここを変更
     initial_sidebar_state="collapsed", 
     menu_items={'About': "日記投稿のための効率化アプリです。"}
 )
@@ -135,7 +135,7 @@ h3 {
 """, unsafe_allow_html=True)
 
 
-st.title("✨ 日記投稿管理 Web アプリ - Daily Posting Manager")
+st.title("✨ 写メ日記投稿管理アプリ - Daily Posting Manager") # <--- ここを変更
 
 # --- セッションステートの初期化 ---
 if 'diary_entries' not in st.session_state:
@@ -150,12 +150,12 @@ if 'global_account' not in st.session_state:
     st.session_state.global_account = ACCOUNT_OPTIONS[0]
 
 
-# タブの定義を4つに変更 (Tab 4 の名前を変更)
+# タブの定義を4つに変更 
 tab1, tab2, tab3, tab4 = st.tabs([
     "📝 ① データ登録・画像アップロード", 
     "🚀 ② 下書き作成・実行", 
-    "📂 ③ 履歴の検索・管理", 
-    "📚 ④ 使用可能日記全文表示" # <--- ここを変更
+    "📂 ③ 自動投稿データの検索・管理", # <--- ここを変更
+    "📚 ④ 使用可能日記全文表示" 
 ])
 
 # =========================================================
@@ -202,15 +202,15 @@ with tab1:
             # 1行を構成する列を定義
             cols = st.columns([1, 1, 1, 2, 3, 1, 2]) 
             
-            # --- テキスト入力（プレースホルダーを削除） ---
-            entry['エリア'] = cols[0].text_input("", value=entry['エリア'], key=f"エリア_{i}", label_visibility="collapsed") # <--- 削除
-            entry['店名'] = cols[1].text_input("", value=entry['店名'], key=f"店名_{i}", label_visibility="collapsed") # <--- 削除
-            entry['投稿時間'] = cols[2].text_input("", value=entry['投稿時間'], key=f"時間_{i}", label_visibility="collapsed") # <--- 削除
+            # --- テキスト入力（プレースホルダーを削除済み） ---
+            entry['エリア'] = cols[0].text_input("", value=entry['エリア'], key=f"エリア_{i}", label_visibility="collapsed") 
+            entry['店名'] = cols[1].text_input("", value=entry['店名'], key=f"店名_{i}", label_visibility="collapsed") 
+            entry['投稿時間'] = cols[2].text_input("", value=entry['投稿時間'], key=f"時間_{i}", label_visibility="collapsed") 
             
             entry['タイトル'] = cols[3].text_area("", value=entry['タイトル'], key=f"タイトル_{i}", height=50, label_visibility="collapsed")
             entry['本文'] = cols[4].text_area("", value=entry['本文'], key=f"本文_{i}", height=100, label_visibility="collapsed") # 本文の枠を大きく
 
-            entry['女の子の名前'] = cols[5].text_input("", value=entry['女の子の名前'], key=f"名_{i}", label_visibility="collapsed") # <--- 削除
+            entry['女の子の名前'] = cols[5].text_input("", value=entry['女の子の名前'], key=f"名_{i}", label_visibility="collapsed") 
             
             # --- 画像アップロード ---
             with cols[6]:
@@ -339,11 +339,11 @@ with tab2:
 
 
 # =========================================================
-# --- Tab 3: 履歴の検索・修正・管理 ---
+# --- Tab 3: 自動投稿データの検索・管理 ---
 # =========================================================
 
 with tab3:
-    st.header("3️⃣ 履歴の検索・修正・管理")
+    st.header("3️⃣ 自動投稿データの検索・管理") # <--- ここを変更
     
     try:
         df_history = pd.DataFrame(SPRS.worksheet(HISTORY_SHEET).get_all_records())
@@ -354,7 +354,7 @@ with tab3:
     st.markdown("---")
 
     # --- A. 履歴データの検索と修正 (機能 B: Gmail連動修正) ---
-    st.subheader("🔍 履歴データの修正")
+    st.subheader("🔍 投稿データの修正") # <--- ここを変更
     
     if not df_history.empty:
         edited_history_df = st.data_editor(
@@ -399,7 +399,7 @@ with tab3:
 # =========================================================
 
 with tab4:
-    st.header("4️⃣ 使用可能日記全文表示・コピペ用") # <--- ここを変更
+    st.header("4️⃣ 使用可能日記全文表示・コピペ用") 
 
     try:
         # GSpreadからデータを読み込み
