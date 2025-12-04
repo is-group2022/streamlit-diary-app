@@ -4,7 +4,7 @@ import gspread
 from io import BytesIO
 import time 
 from datetime import datetime
-import traceback # デバッグ用のライブラリをインポート
+import traceback 
 
 # --- 1. 定数と初期設定 ---
 try:
@@ -168,21 +168,7 @@ with tab1:
         # GSpreadからデータを読み込み
         ws_templates = SPRS.worksheet(USABLE_DIARY_SHEET)
         
-        # --- DEBUG START ---
-        st.markdown("---")
-        st.subheader("🔬 デバッグ情報")
-        st.caption(f"アクセス試行シート名: **{USABLE_DIARY_SHEET}**")
-        
-        # エラー発生を回避するために get_all_records() の代わりに get_all_values() を試す
-        try:
-            raw_values = ws_templates.get_all_values()
-            if raw_values:
-                st.code(f"生のシートデータ（最初の2行）:\n{raw_values[:2]}", language='text')
-            else:
-                st.warning("生のデータ取得は成功しましたが、シートは空です。")
-        except Exception as debug_e:
-            st.error(f"❌ 生のデータ取得エラーが発生しました: {debug_e}")
-        st.markdown("---")
+        # --- DEBUG START (デバッグ表示は不要になったため、コードを整理します) ---
         # --- DEBUG END ---
 
         
@@ -199,7 +185,8 @@ with tab1:
         if not df_templates.empty:
             
             # フィルターUI
-            col_type, col_kind = st.columns([1, 1, 3])
+            # 修正箇所: 3要素を受け取るため、3つの変数に展開
+            col_type, col_kind, _ = st.columns([1, 1, 3]) 
             
             # シートに「日記種類」列が存在するか確認してからselectboxのオプションを作成
             type_options = ["すべて"]
@@ -237,8 +224,7 @@ with tab1:
     except Exception as e:
         # 読み込み失敗時の詳細なエラー情報と確認事項を表示
         st.error(f"❌ テンプレートデータの読み込みエラー: {e}")
-        st.code(traceback.format_exc(), language='python') # 詳細なスタックトレースを表示
-        st.warning("🔑 **再確認事項**:\n1. **`secrets.toml`** の設定とシート名 (**`【使用可能日記文】`**) が完全に一致しているか。\n2. **GCPサービスアカウント**にスプレッドシートの**閲覧権限**が付与されているか。\n3. スプレッドシートの**1行目**（ヘッダー行）に「タイトル」「本文」「日記種類」「タイプ種類」が**入力されているか**（`get_all_records()`は1行目をキーとして使用します）。")
+        st.warning("🔑 **再確認事項**:\n1. **`secrets.toml`** の設定とシート名 (**`【使用可能日記文】`**) が完全に一致しているか。\n2. **GCPサービスアカウント**にスプレッドシートの**閲覧権限**が付与されているか。")
 
     st.markdown("---")
     
@@ -327,7 +313,6 @@ with tab1:
                     girl_name = entry['女の子の名前'].strip()
                     
                     if not hhmm or not girl_name:
-                         # f-string修正済み
                          st.error(f"❌ No. {i+1} のファイル名エラー: 投稿時間/名前を入力してください。") 
                          continue
                          
@@ -350,7 +335,7 @@ with tab1:
                     row_data = [
                         entry['エリア'], entry['店名'], st.session_state.global_media, 
                         entry['投稿時間'], entry['女の子の名前'], entry['タイトル'],
-                        entry['本文'], st.session_state.global_account 
+                        entry['本文'], entry['担当アカウント'] 
                     ]
                     row_data.extend(['未実行', '未実行', '未実行']) 
                     final_data.append(row_data)
