@@ -1,7 +1,7 @@
 import streamlit as st
 from datetime import datetime
 import pandas as pd
-import json
+import json # JSONモジュールをインポート
 import io
 import time
 import base64
@@ -36,43 +36,30 @@ DRAFT_DEFAULT_TO_ADDRESS = "example@mailinglist.com"
 # 2. 認証情報の設定 (Streamlit Secretsから取得)
 # ==============================================================================
 
-# Secretsからトップレベルのキーを読み込み、認証情報辞書を再構築します
+# Secretsからgoogle_secretsキーを取得し、JSONとしてパースします
 try:
-    # 秘密鍵の値をSecretsから取得
-    raw_key = st.secrets["private_key"]
+    # 🚨 secrets.tomlに格納したJSON文字列全体を読み込みます
+    raw_json_string = st.secrets["google_secrets"]
     
-    # 🚨 最終手段のロジック: Secretsに「改行なしの純粋なBase64文字列」が格納されていることを前提とする。
-    # Base64文字列の末尾のパディング('=')が欠けていてもデコードできるように、強制的にパディングを追加する。
-    body = raw_key.strip()
-    missing_padding = len(body) % 4
-    if missing_padding:
-        body += '=' * (4 - missing_padding)
+    # 🚨 JSON文字列をPython辞書に変換します
+    SERVICE_ACCOUNT_KEY = json.loads(raw_json_string)
+    
+    # 鍵データが欠損していないか検証（これは念のため）
+    if 'private_key' not in SERVICE_ACCOUNT_KEY:
+        raise ValueError("JSONデータに 'private_key' が見つかりません。")
 
-    # PEM形式（Google認証が期待する形式）に再構築 (64文字ごとに改行を挿入)
-    # これにより、Base64デコードに失敗しない状態のデータが作られる
-    pem_body = textwrap.fill(body, width=64)
-    private_key_value = f"-----BEGIN PRIVATE KEY-----\n{pem_body}\n-----END PRIVATE KEY-----"
+    # 注意: ここでは鍵のクリーンアップは不要です。json.loadsが改行を正しく処理するためです。
 
-    # 認証情報辞書を構築
-    SERVICE_ACCOUNT_KEY = {
-        "type": st.secrets["type"],
-        "project_id": st.secrets["project_id"],
-        "private_key_id": st.secrets["private_key_id"],
-        "private_key": private_key_value, # 🚨 処理済みのPEM形式の秘密鍵を使用
-        "client_email": st.secrets["client_email"],
-        "client_id": st.secrets["client_id"],
-        "auth_uri": st.secrets["auth_uri"],
-        "token_uri": st.secrets["token_uri"],
-        "auth_provider_x509_cert_url": st.secrets["auth_provider_x509_cert_url"],
-        "client_x509_cert_url": st.secrets["client_x509_cert_url"],
-        "universe_domain": st.secrets["universe_domain"],
-    }
-except KeyError as e:
-    st.error(f"🚨 API初期化エラー: Secretsに必須キー '{e.args[0]}' が見つかりません。")
-    st.info("Secrets (金庫) の内容が正しいか確認してください。")
+except KeyError:
+    st.error("🚨 API初期化エラー: Secretsに必須キー 'google_secrets' が見つかりません。")
+    st.info("secrets.toml の内容が正しいか確認してください。")
+    st.stop()
+except json.JSONDecodeError as e:
+    st.error(f"🚨 JSONパースエラー: secrets.toml に格納されたJSON文字列の形式が不正です。詳細: {e}")
+    st.info("secrets.toml の `google_secrets` キーの値が、完全なJSON形式で囲まれているか確認してください。")
     st.stop()
 except Exception as e:
-    st.error(f"🚨 API初期化エラー: Googleの認証情報読み込み中に予期せぬエラーが発生しました。詳細: {e}")
+    st.error(f"🚨 API初期化エラー: 予期せぬエラーが発生しました。詳細: {e}")
     st.stop()
 
 
@@ -87,6 +74,7 @@ def init_gspread_client(creds_info):
         return None, None
     try:
         # 認証情報の読み込み
+        # SERVICE_ACCOUNT_KEYはすでに正しい辞書形式です
         creds = Credentials.from_service_account_info(creds_info, 
                                                       scopes=['https://www.googleapis.com/auth/spreadsheets',
                                                               'https://www.googleapis.com/auth/drive'])
