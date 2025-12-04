@@ -3,8 +3,8 @@ import pandas as pd
 from gspread import Client, Worksheet
 from google.oauth2.service_account import Credentials
 from typing import Dict, Any
-import json
 import logging
+import base64
 
 # ログレベルの設定（デバッグ用）
 logging.basicConfig(level=logging.INFO)
@@ -14,7 +14,7 @@ SCOPES = ['https://www.googleapis.com/auth/spreadsheets',
           'https://www.googleapis.com/auth/drive']
 
 # ----------------------------------------------------------------------
-# 認証情報の読み込みと整形（Secretsの特殊な形式に対応）
+# 認証情報の読み込みと整形（BASE64エンコードされたSecretsに対応）
 # ----------------------------------------------------------------------
 
 @st.cache_resource
@@ -22,8 +22,8 @@ def get_gspread_client() -> Client:
     """
     Streamlit SecretsからGoogleサービスアカウント認証情報を取得し、
     gspreadクライアントを初期化します。
-
-    Secrets設定のTOML形式エラーを回避するため、private_keyをアプリケーション側で整形します。
+    
+    Secrets設定のTOMLエラーを回避するため、private_key_base64をデコードして整形します。
     """
     
     # 認証情報を取得
@@ -40,20 +40,24 @@ def get_gspread_client() -> Client:
         info[key] = value
 
     # 🚨 修正ロジック：
-    # TOMLエラーを避けるため、private_keyは改行なしの1行文字列として保存されています。
-    # ここで、認証クライアントが期待する正しい形式（改行を含む）に復元します。
-    if 'private_key' in info and isinstance(info['private_key'], str):
-        pk_content = info['private_key']
-        
-        # BEGIN PRIVATE KEYとEND PRIVATE KEYの行に改行文字 '\n' を手動で挿入します。
-        # 鍵の中身（base64エンコード部分）は改行がなくても認証クライアントは受け付けるため、
-        # ヘッダーとフッターの構造を整えることに注力します。
-        pk_content = pk_content.replace('-----BEGIN PRIVATE KEY-----', '-----BEGIN PRIVATE KEY-----\n')
-        pk_content = pk_content.replace('-----END PRIVATE KEY-----', '\n-----END PRIVATE KEY-----\n')
-        
-        # 復元した文字列を認証情報として設定
-        info['private_key'] = pk_content
-        logging.info("private_keyの改行コードを復元しました。")
+    # private_key_base64キーを探し、値をデコードして private_key キーに設定し直します。
+    if 'private_key_base64' in info and isinstance(info['private_key_base64'], str):
+        try:
+            # BASE64文字列をデコードし、バイト列からUTF-8文字列に変換
+            pk_base64_decoded = base64.b64decode(info['private_key_base64']).decode('utf-8')
+            
+            # 認証クライアントが期待する private_key キーに設定
+            info['private_key'] = pk_base64_decoded
+            
+            # デバッグのためにBASE64キーは削除（必須ではないが推奨）
+            del info['private_key_base64'] 
+            logging.info("private_key_base64をデコードし、認証情報に復元しました。")
+        except Exception as e:
+            st.error(f"BASE64デコード処理に失敗しました。キーの値が正しいBASE64形式か確認してください。エラー詳細: {e}")
+            st.stop()
+    else:
+        st.error("Secretsに 'private_key_base64' キーが見つかりません。Secretsの設定を確認してください。")
+        st.stop()
 
 
     # gspreadクライアントを認証情報から直接生成
@@ -103,9 +107,9 @@ with tab2:
     st.subheader("[app_config] 設定")
     st.json(st.secrets.get("app_config", {}))
     st.subheader("[google_secrets] のキー情報")
-    # private_keyは長いため、表示から除外
+    # private_key_base64を表示
     debug_secrets = st.secrets.get("google_secrets", {}).copy()
-    if 'private_key' in debug_secrets:
-        debug_secrets['private_key'] = debug_secrets['private_key'][:50] + "..." 
+    if 'private_key_base64' in debug_secrets:
+        debug_secrets['private_key_base64'] = debug_secrets['private_key_base64'][:50] + "..." 
     st.json(debug_secrets)
     st.write("認証クライアントオブジェクトの存在確認: OK")
