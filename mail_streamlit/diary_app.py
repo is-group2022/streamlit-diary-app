@@ -52,7 +52,6 @@ INPUT_HEADERS = REGISTRATION_HEADERS[:8]
 def connect_to_gsheets():
     """GSpreadでGoogle Sheetsに接続し、クライアントを返す"""
     try:
-        # サービスの認証情報をsecretsから取得して接続
         client = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
         spreadsheet = client.open_by_key(SHEET_ID)
         return spreadsheet
@@ -68,11 +67,8 @@ SPRS = connect_to_gsheets()
 def connect_to_drive():
     """Google Drive API クライアントを初期化する"""
     try:
-        # サービスの認証情報を作成
         creds_info = st.secrets["gcp_service_account"]
         creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
-        
-        # Drive API サービスをビルド
         service = build('drive', 'v3', credentials=creds)
         return service
     except Exception as e:
@@ -89,13 +85,16 @@ except SystemExit:
 
 def find_folder_by_name(service, name, parent_id):
     """指定された親フォルダ内でフォルダ名を探す"""
+    # 共有ドライブ内の検索に最適化されたクエリ
     query = (
         f"name = '{name}' and mimeType = 'application/vnd.google-apps.folder' and '{parent_id}' in parents and trashed = false"
     )
     results = service.files().list(
         q=query, 
         spaces='drive', 
-        fields='files(id, name)'
+        fields='files(id, name)',
+        includeItemsFromAllDrives=True, # 共有ドライブを含める
+        supportsAllDrives=True # 共有ドライブをサポート
     ).execute()
     
     files = results.get('files', [])
@@ -112,7 +111,8 @@ def create_folder(service, name, parent_id):
     }
     file = service.files().create(
         body=file_metadata,
-        fields='id'
+        fields='id',
+        supportsAllDrives=True # 共有ドライブをサポート
     ).execute()
     return file.get('id')
 
@@ -121,37 +121,34 @@ def get_or_create_folder(service, name, parent_id):
     folder_id = find_folder_by_name(service, name, parent_id)
     
     if not folder_id:
-        st.caption(f"  [新規フォルダ作成] -> 親ID: {parent_id}, フォルダ名: '{name}'")
+        st.caption(f"  [新規フォルダ作成] -> フォルダ名: '{name}'")
         folder_id = create_folder(service, name, parent_id)
         
     return folder_id
 
 
 def upload_file_to_drive(uploaded_file, file_name, destination_folder_id, service):
-    """
-    指定されたフォルダIDにファイルをアップロードする
-    """
+    """指定されたフォルダIDにファイルをアップロードする"""
     try:
         file_content = uploaded_file.getvalue()
         
-        # StreamlitのUploadedFileオブジェクトからファイルストリームを作成
         media_body = MediaIoBaseUpload(
             BytesIO(file_content),
             mimetype=uploaded_file.type,
             resumable=True
         )
 
-        # ファイルメタデータ
         file_metadata = {
             'name': file_name,
-            'parents': [destination_folder_id],  # 最終格納先フォルダID
+            'parents': [destination_folder_id],
         }
 
-        # アップロード実行
+        # アップロード実行 (共有ドライブをサポート)
         file = service.files().create(
             body=file_metadata,
             media_body=media_body,
-            fields='id'
+            fields='id',
+            supportsAllDrives=True 
         ).execute()
 
         file_id = file.get('id')
@@ -161,16 +158,13 @@ def upload_file_to_drive(uploaded_file, file_name, destination_folder_id, servic
         return file_id
         
     except Exception as e:
-        # ここで発生する 403 エラーを捕捉
         st.error(f"❌ Driveへのアップロード中にエラーが発生しました: {e}")
         return None
 
 
 def drive_upload_wrapper(uploaded_file, entry, drive_service):
-    """
-    動的なフォルダ階層を構築し、ファイルをアップロードするメイン関数
-    """
-    # 1. データ抽出
+    """動的なフォルダ階層を構築し、ファイルをアップロードするメイン関数"""
+    
     area_name = entry['エリア'].strip()
     store_name_base = entry['店名'].strip()
     media_type = entry['媒体']
@@ -179,36 +173,36 @@ def drive_upload_wrapper(uploaded_file, entry, drive_service):
         st.error("❌ エリア名または店名が入力されていません。画像アップロードをスキップします。")
         return None
 
-    # 2. 最終店舗フォルダ名の決定
+    # 1. 最終店舗フォルダ名の決定
     if media_type == "デリじゃ":
         store_folder_name = f"デリじゃ {store_name_base}"
     else: # 駅ちかの場合
         store_folder_name = store_name_base
 
-    # 3. エリアフォルダの検索/作成 (親: DRIVE_FOLDER_ID = 写メ日記画像用)
+    # 2. エリアフォルダの検索/作成 (親: DRIVE_FOLDER_ID)
     area_folder_id = get_or_create_folder(drive_service, area_name, DRIVE_FOLDER_ID)
     if not area_folder_id:
         st.error(f"❌ エリアフォルダ '{area_name}' の作成に失敗しました。")
         return None
 
-    # 4. 店舗フォルダの検索/作成 (親: area_folder_id)
+    # 3. 店舗フォルダの検索/作成 (親: area_folder_id)
     store_folder_id = get_or_create_folder(drive_service, store_folder_name, area_folder_id)
     if not store_folder_id:
         st.error(f"❌ 店舗フォルダ '{store_folder_name}' の作成に失敗しました。")
         return None
 
-    # 5. ファイル名の決定
+    # 4. ファイル名の決定
     hhmm = entry['投稿時間'].strip() 
     girl_name = entry['女の子の名前'].strip()
     ext = uploaded_file.name.split('.')[-1]
     new_filename = f"{hhmm}_{girl_name}.{ext}"
     
-    # 6. ファイルアップロード実行
+    # 5. ファイルアップロード実行
     return upload_file_to_drive(uploaded_file, new_filename, store_folder_id, drive_service)
 
 
 # --- 3. 実行ロジック (プレースホルダー関数) ---
-# (中略：変更なし)
+
 def run_step(step_num, action_desc, sheet_name=REGISTRATION_SHEET):
     """実行ステップのシミュレーションとシート更新のプレースホルダー"""
     st.info(f"🔄 Step {step_num}: **{action_desc}** を実行中...")
@@ -220,21 +214,25 @@ def run_step_5_move_to_history():
     """Step 5: 履歴へ移動（新規機能）"""
     st.info("🔄 Step 5: **実行済みデータ**を履歴シートへ移動中...")
     time.sleep(2) 
+    # ここに Sheets API を使用した行移動ロジックを実装
     st.success("✅ Step 5: 実行済みデータが履歴シートへ移動・削除されました。")
 
 
 # --- 4. Streamlit UI 構築 ---
-# (中略：UI設定、CSS、セッションステートの初期化は変更なし)
 
+# テーマ設定と初期化
 st.set_page_config(
     layout="wide", 
     page_title="写メ日記投稿管理アプリ",
     initial_sidebar_state="collapsed", 
     menu_items={'About': "日記投稿のための効率化アプリです。"}
 )
+# --- カスタムCSS（省略） ---
+st.markdown("""<style>...</style>""", unsafe_allow_html=True) 
 
-st.markdown("""<style>...</style>""", unsafe_allow_html=True) # CSSは省略
 st.title("✨ 写メ日記投稿管理アプリ - Daily Posting Manager")
+
+# --- セッションステートの初期化（省略） ---
 
 # タブの定義
 tab1, tab2, tab3, tab4 = st.tabs([
@@ -250,20 +248,15 @@ tab1, tab2, tab3, tab4 = st.tabs([
 
 with tab1:
     st.header("1️⃣ データ準備・入力")
-    
     st.subheader("📖 日記使用可能文（コピペ用）")
     st.info("💡 **コピペ補助**：全画面でテンプレートを表示・コピペする場合は、**「📚 ④ 使用可能日記全文表示」タブ**をご利用ください。")
     st.markdown("---")
     
-    # --- B. 40件の日記データ入力 ---
     st.subheader("2️⃣ 登録用データ入力と画像アップロード (最大40件)")
-
-    # **媒体と担当アカウントの全体設定（全体適用）**
     st.markdown("#### ⚙️ 全体設定 (40件すべてに適用されます)")
     cols_global = st.columns(2)
     st.session_state.global_media = cols_global[0].selectbox("🌐 媒体", MEDIA_OPTIONS, key='global_media_select')
     st.session_state.global_account = cols_global[1].selectbox("👤 担当アカウント", ACCOUNT_OPTIONS, key='global_account_select')
-    
     st.warning("⚠️ **重要**：画像ファイル名は**投稿時間(hhmm)**と**女の子の名前**から自動生成されます。必ず入力してください。")
 
     with st.form("diary_registration_form"):
@@ -271,7 +264,11 @@ with tab1:
         # ヘッダー行 (UIに表示される項目のみ)
         col_header = st.columns([1, 1, 1, 2, 3, 1, 2]) 
         col_header[0].markdown("📍 **エリア**")
-        # ... (ヘッダー定義は省略)
+        col_header[1].markdown("🏢 **店名**")
+        col_header[2].markdown("⏰ **投稿時間**")
+        col_header[3].markdown("📝 **タイトル**")
+        col_header[4].markdown("📖 **本文**")
+        col_header[5].markdown("👧 **女の子名**")
         col_header[6].markdown("📷 **画像ファイル**")
 
         st.markdown("<hr style='border: 1px solid #ddd; margin: 10px 0;'>", unsafe_allow_html=True) 
@@ -301,7 +298,7 @@ with tab1:
 
         if submitted:
             valid_entries_and_files = []
-            # ... (valid_entries_and_files の抽出ロジックは変更なし)
+            
             for entry in st.session_state.diary_entries:
                 input_check_headers = ["エリア", "店名", "投稿時間", "女の子の名前", "タイトル", "本文"]
                 is_data_filled = any(entry.get(h) and entry.get(h) != "" for h in input_check_headers)
@@ -338,7 +335,7 @@ with tab1:
                 final_data = []
                 for entry in valid_entries_and_files:
                     row_data = [
-                        entry['エリア'], entry['店名'], entry['媒体'], # 媒体も使用
+                        entry['エリア'], entry['店名'], entry['媒体'], 
                         entry['投稿時間'], entry['女の子の名前'], entry['タイトル'],
                         entry['本文'], entry['担当アカウント'] 
                     ]
@@ -357,7 +354,7 @@ with tab1:
 
 
 # =========================================================
-# --- Tab 2, 3, 4: (変更なし) ---
+# --- Tab 2, 3, 4: (UIロジックは変更なし) ---
 # =========================================================
 
-# Tab 2, 3, 4 のコードは変更がないため、この回答では省略します。
+# Tab 2, 3, 4 のコードは前回の完全版と変更がないため、この回答では省略します。
