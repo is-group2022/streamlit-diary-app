@@ -37,7 +37,6 @@ try:
     
     # プルダウンの選択肢
     MEDIA_OPTIONS = ["駅ちか", "デリじゃ"]
-    # ACCOUNT_OPTIONS = ["A", "B", "SUB"] # 削除
     # 担当アカウントとメールアドレスのマッピング (Step 2, 3で使用) - Step 2/3/4削除により原則不要だが、定数として保持
     ACCOUNT_MAPPING = {
         "A": "main.ekichika.a@gmail.com", 
@@ -59,13 +58,12 @@ except KeyError:
 
 
 # 最終確定した「日記登録用シート」のヘッダー定義 (11項目)
-# 【変更点】担当アカウント(H列)以降の項目は、このアプリでは利用されなくなるが、シート構造を保持するために残す。
 REGISTRATION_HEADERS = [
     "エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文", "担当アカウント", 
     "下書き登録確認", "画像添付確認", "宛先登録確認" 
 ]
-# 入力に必要なヘッダー (エリア, 店名 は共通化するためループからは除外)
-INPUT_HEADERS = ["媒体", "投稿時間", "女の子の名前", "タイトル", "本文"]
+# 【変更点】入力に必要なヘッダーから "媒体" を削除
+INPUT_HEADERS = ["投稿時間", "女の子の名前", "タイトル", "本文"]
 
 # --- カラムインデックス (0から開始) ---
 COL_INDEX_LOCATION = 0     # A列: エリア
@@ -201,8 +199,8 @@ def upload_file_to_drive(uploaded_file, file_name, destination_folder_id, servic
 def drive_upload_wrapper(uploaded_file, entry, area_name, store_name_base, drive_service):
     """動的なフォルダ階層を構築し、ファイルをアップロードするメイン関数"""
     
-    # area_name, store_name_base は共通入力から取得
-    media_type = entry['媒体']
+    # media_type は entry からではなく共通設定から取得
+    media_type = st.session_state.global_media
     
     if not area_name or not store_name_base:
         st.error("❌ エリア名または店名が入力されていません。画像アップロードをスキップします。")
@@ -242,9 +240,6 @@ def execute_step_5(gc, sheets_service, status_area):
     """Step 5: K列が「登録済」の行を履歴シートに移動し、元のシートから削除する"""
     
     status_area.info("🔄 実行済みデータ**を履歴シートへ移動中...")
-
-    # NOTE: Tab 2削除により、K列(宛先登録確認)が「登録済」になる処理はアプリ上では実行されなくなります。
-    # この関数は、外部スクリプトなどでK列が「登録済」になったデータが存在することを前提とします。
     
     try:
         # 1. データの読み込み (ヘッダーも含むA:K列) - 文字列として取得
@@ -265,7 +260,6 @@ def execute_step_5(gc, sheets_service, status_area):
         rows_to_move = []
         rows_to_delete_index = [] # 削除する行のインデックス (0から開始, ヘッダーを含まない)
         
-        # K列のインデックスが REGISTRATION_HEADERS の COL_INDEX_RECIPIENT_STATUS (10) であることを確認
         col_k_index = COL_INDEX_RECIPIENT_STATUS
         
         for index, row in enumerate(data_rows):
@@ -388,22 +382,22 @@ if 'diary_entries' not in st.session_state:
     
     st.session_state.diary_entries = [initial_entry.copy() for _ in range(40)]
 
-# 【変更点】global_media は保持、global_account は削除
+# 【変更なし】global_media は保持
 if 'global_media' not in st.session_state:
     st.session_state.global_media = MEDIA_OPTIONS[0]
 
-# 【新規】エリアと店名の共通入力用ステート
+# 【変更なし】エリアと店名の共通入力用ステート
 if 'global_area' not in st.session_state:
     st.session_state.global_area = ""
 if 'global_store' not in st.session_state:
     st.session_state.global_store = ""
     
-# 【変更点】ログ表示のプレースホルダーを初期化 (Step 5用)
+# 【変更なし】ログ表示のプレースホルダーを初期化 (Step 5用)
 if 'last_run_status_placeholder' not in st.session_state:
     st.session_state.last_run_status_placeholder = None 
 
 
-# 【変更点】タブの定義 (Tab 2削除により Tab 3 -> 2, Tab 4 -> 3 に繰り上げ)
+# 【変更なし】タブの定義 (Tab 2削除により Tab 3 -> 2, Tab 4 -> 3 に繰り上げ)
 tab1, tab2, tab3 = st.tabs([
     "📝 ① データ登録・画像アップロード", 
     "📂 ② 自動投稿データの検索・管理", 
@@ -431,7 +425,7 @@ with tab1:
     # 媒体 (プルダウン)
     st.session_state.global_media = cols_global[0].selectbox("🌐 媒体", MEDIA_OPTIONS, key='global_media_select')
     
-    # 【変更点】エリア、店名を共通入力にする (テキスト入力)
+    # エリア、店名を共通入力にする (テキスト入力)
     st.session_state.global_area = cols_global[1].text_input("📍 エリア", value=st.session_state.global_area, key='global_area_input')
     st.session_state.global_store = cols_global[2].text_input("🏢 店名", value=st.session_state.global_store, key='global_store_input')
     
@@ -440,14 +434,13 @@ with tab1:
     with st.form("diary_registration_form"):
         
         # ヘッダー行 (UIに表示される項目のみ)
-        # 【変更点】カラム構成の変更: 媒体(1), 投稿時間(1), 女の子名(1), タイトル(2), 本文(3), 画像(2)
-        col_header = st.columns([1, 1, 1, 2, 3, 2]) 
-        col_header[0].markdown("🌐 **媒体**")
-        col_header[1].markdown("⏰ **投稿時間**")
-        col_header[2].markdown("👧 **女の子名**")
-        col_header[3].markdown("📝 **タイトル**")
-        col_header[4].markdown("📖 **本文**")
-        col_header[5].markdown("📷 **画像ファイル**")
+        # 【修正箇所】「媒体」を削除し、投稿時間、名前、タイトル、本文、画像の順にする
+        col_header = st.columns([1, 1, 2, 3, 2]) 
+        col_header[0].markdown("⏰ **投稿時間**")
+        col_header[1].markdown("👧 **女の子名**")
+        col_header[2].markdown("📝 **タイトル**")
+        col_header[3].markdown("📖 **本文**")
+        col_header[4].markdown("📷 **画像ファイル**")
 
         st.markdown("<hr style='border: 1px solid #ddd; margin: 10px 0;'>", unsafe_allow_html=True) 
         
@@ -456,18 +449,18 @@ with tab1:
             entry = st.session_state.diary_entries[i]
             
             # 1行を構成する列を定義
-            cols = st.columns([1, 1, 1, 2, 3, 2]) 
+            # 【修正箇所】「媒体」の列を削除
+            cols = st.columns([1, 1, 2, 3, 2]) 
             
             # --- テキスト入力 ---
-            entry['媒体'] = cols[0].selectbox("媒体", MEDIA_OPTIONS, key=f"媒体_{i}", index=MEDIA_OPTIONS.index(st.session_state.global_media), label_visibility="collapsed")
-            entry['投稿時間'] = cols[1].text_input("時間", value=entry['投稿時間'], key=f"時間_{i}", label_visibility="collapsed") 
-            entry['女の子の名前'] = cols[2].text_input("名前", value=entry['女の子の名前'], key=f"名_{i}", label_visibility="collapsed")
+            entry['投稿時間'] = cols[0].text_input("時間", value=entry['投稿時間'], key=f"時間_{i}", label_visibility="collapsed") 
+            entry['女の子の名前'] = cols[1].text_input("名前", value=entry['女の子の名前'], key=f"名_{i}", label_visibility="collapsed")
             
-            entry['タイトル'] = cols[3].text_area("タイトル", value=entry['タイトル'], key=f"タイトル_{i}", height=50, label_visibility="collapsed")
-            entry['本文'] = cols[4].text_area("本文", value=entry['本文'], key=f"本文_{i}", height=100, label_visibility="collapsed")
+            entry['タイトル'] = cols[2].text_area("タイトル", value=entry['タイトル'], key=f"タイトル_{i}", height=50, label_visibility="collapsed")
+            entry['本文'] = cols[3].text_area("本文", value=entry['本文'], key=f"本文_{i}", height=100, label_visibility="collapsed")
             
             # --- 画像アップロード ---
-            with cols[5]:
+            with cols[4]:
                 uploaded_file = st.file_uploader(
                     "画像",
                     type=['png', 'jpg', 'jpeg'],
@@ -489,6 +482,7 @@ with tab1:
             # 共通入力のチェック
             common_area = st.session_state.global_area.strip()
             common_store = st.session_state.global_store.strip()
+            common_media = st.session_state.global_media # 共通媒体
             
             if not common_area or not common_store:
                 st.error("❌ エリア名と店名は必ず入力してください。")
@@ -541,7 +535,7 @@ with tab1:
                     row_data = [
                         common_area,       # A列: エリア (共通)
                         common_store,      # B列: 店名 (共通)
-                        entry['媒体'],     # C列: 媒体
+                        common_media,      # C列: 媒体 (共通)
                         entry['投稿時間'], # D列: 投稿時間
                         entry['女の子の名前'], # E列: 女の子の名前
                         entry['タイトル'], # F列: タイトル
