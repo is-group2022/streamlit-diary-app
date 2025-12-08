@@ -37,11 +37,9 @@ try:
     
     # プルダウンの選択肢
     MEDIA_OPTIONS = ["駅ちか", "デリじゃ"]
-    ACCOUNT_OPTIONS = ["A", "B", "SUB"]
-    # 担当アカウントとメールアドレスのマッピング (Step 2, 3で使用)
+    # ACCOUNT_OPTIONS = ["A", "B", "SUB"] # 削除
+    # 担当アカウントとメールアドレスのマッピング (Step 2, 3で使用) - Step 2/3/4削除により原則不要だが、定数として保持
     ACCOUNT_MAPPING = {
-        # !!! 注意: サービスアカウントにアクセスを許可した実在のメールアドレスに置き換えてください !!!
-        # 【重要】これらのアカウントは、サービスアカウントから委任を受ける必要があります。
         "A": "main.ekichika.a@gmail.com", 
         "B": "main.ekichika.b@gmail.com", 
         "SUB": "sub.media@wwwsigroupcom.com" 
@@ -52,7 +50,7 @@ try:
     SCOPES = [
         'https://www.googleapis.com/auth/spreadsheets',
         'https://www.googleapis.com/auth/drive',
-        'https://www.googleapis.com/auth/gmail.modify' # Gmail操作に必要
+        'https://www.googleapis.com/auth/gmail.modify' 
     ]
 
 except KeyError:
@@ -61,11 +59,13 @@ except KeyError:
 
 
 # 最終確定した「日記登録用シート」のヘッダー定義 (11項目)
+# 【変更点】担当アカウント(H列)以降の項目は、このアプリでは利用されなくなるが、シート構造を保持するために残す。
 REGISTRATION_HEADERS = [
     "エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文", "担当アカウント", 
     "下書き登録確認", "画像添付確認", "宛先登録確認" 
 ]
-INPUT_HEADERS = REGISTRATION_HEADERS[:8] 
+# 入力に必要なヘッダー (エリア, 店名 は共通化するためループからは除外)
+INPUT_HEADERS = ["媒体", "投稿時間", "女の子の名前", "タイトル", "本文"]
 
 # --- カラムインデックス (0から開始) ---
 COL_INDEX_LOCATION = 0     # A列: エリア
@@ -76,9 +76,6 @@ COL_INDEX_NAME = 4         # E列: 女の子の名前
 COL_INDEX_TITLE = 5        # F列: タイトル
 COL_INDEX_BODY = 6         # G列: 本文
 COL_INDEX_HANDLER = 7      # H列: 担当アカウント
-COL_INDEX_DRAFT_STATUS = 8 # I列: 下書き登録確認
-COL_INDEX_IMAGE_STATUS = 9 # J列: 画像添付確認
-COL_INDEX_RECIPIENT_STATUS = 10 # K列: 宛先登録確認
 
 
 # --- 2. Google API連携関数 ---
@@ -108,12 +105,7 @@ def connect_to_api_services():
         creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
         sheets_service = build('sheets', 'v4', credentials=creds)
         drive_service = build('drive', 'v3', credentials=creds)
-        
-        # 【重要: Gmail接続の修正のヒント】
-        # ドメイン全体の委任を設定している場合は、ユーザー委任を設定して再構築する必要がある
-        # 例: service = build('gmail', 'v1', credentials=creds.with_subject('user_to_impersonate@example.com'))
-        # ただし、ここではまだユーザーを特定できないため、まずは標準のサービスアカウントで構築。
-        # 実行時の関数内で user_id (target_email) を使用して委任を行う。
+        # Tab 2 (Gmail関連) 削除に伴い、Gmailサービスの利用頻度は低下
         gmail_service = build('gmail', 'v1', credentials=creds) 
         
         return sheets_service, drive_service, gmail_service
@@ -206,11 +198,10 @@ def upload_file_to_drive(uploaded_file, file_name, destination_folder_id, servic
         return None
 
 
-def drive_upload_wrapper(uploaded_file, entry, drive_service):
+def drive_upload_wrapper(uploaded_file, entry, area_name, store_name_base, drive_service):
     """動的なフォルダ階層を構築し、ファイルをアップロードするメイン関数"""
     
-    area_name = entry['エリア'].strip()
-    store_name_base = entry['店名'].strip()
+    # area_name, store_name_base は共通入力から取得
     media_type = entry['媒体']
     
     if not area_name or not store_name_base:
@@ -245,421 +236,16 @@ def drive_upload_wrapper(uploaded_file, entry, drive_service):
     return upload_file_to_drive(uploaded_file, new_filename, store_folder_id, drive_service)
 
 
-# --- 3. 実行ロジック (統合) ---
+# --- 3. 実行ロジック (Tab 2削除により Step 5のみ保持) ---
 
-def update_sheet_status(sheets_service, row_index, col_index, status):
-    """スプレッドシートの特定の行/列にステータスを書き込む。"""
-    col_letter = chr(65 + col_index) # 例: I列は65+8=I
-    # row_index は 1から始まるシートの行番号
-    range_name = f'{REGISTRATION_SHEET}!{col_letter}{row_index}'
-    value_input_option = 'USER_ENTERED'
-    value = [[status]]
-    body = {'values': value}
-    
-    try:
-        sheets_service.spreadsheets().values().update(
-            spreadsheetId=SHEET_ID, range=range_name,
-            valueInputOption=value_input_option, body=body).execute()
-        return True
-    except HttpError as error:
-        # このエラーはログエリアではなく、システムエラーとして扱う
-        st.error(f"❌ シート更新エラー: {error.resp.status}")
-        return False
-
-# --------------------------
-# Step 2: Gmail下書き作成 
-# --------------------------
-def create_raw_draft_message(subject, body):
-    """EmailMessageを構築し、Base64URLエンコードする (宛先は空欄)"""
-    message = EmailMessage()
-    message['To'] = "" 
-    # 件名に改行が入らないよう処理
-    safe_subject = subject.replace('\r', '').replace('\n', '').strip() 
-    message['Subject'] = safe_subject 
-    message.set_content(body) 
-    
-    encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
-    return encoded_message
-
-def execute_step_2(sheets_service, gmail_service, target_account_key, status_area):
-    """Step 2: 指定されたアカウントのログに基づき、下書きを作成し、シートを更新する"""
-    
-    target_email = ACCOUNT_MAPPING.get(target_account_key)
-    if not target_email:
-        status_area.error(f"エラー: 不明なターゲットアカウントキー '{target_account_key}'")
-        return False
-
-    status_area.info(f"--- Step 2: **{target_account_key}** の下書き作成を開始します (対象メール: **{target_email}**) ---")
-
-    try:
-        # 1. シートからデータを取得 (A:K) - 文字列として取得
-        result = sheets_service.spreadsheets().values().get(
-            spreadsheetId=SHEET_ID, 
-            range=f"{REGISTRATION_SHEET}!A:K"
-        ).execute()
-        values = result.get('values', [])
-        
-        if not values or len(values) <= 1:
-            status_area.warning("スプレッドシートにデータがありません。終了します。")
-            return True # 正常終了
-
-        data_rows = values[1:]
-        success_count = 0
-        skip_count = 0
-        
-        for index, row in enumerate(data_rows):
-            sheet_row_number = index + 2 # A2が2行目
-            
-            # K列までデータがない場合の対応
-            if len(row) < COL_INDEX_RECIPIENT_STATUS + 1:
-                 row.extend([''] * (COL_INDEX_RECIPIENT_STATUS + 1 - len(row)))
-            
-            # I列（下書き登録確認）チェック
-            draft_status = row[COL_INDEX_DRAFT_STATUS].strip().lower()
-            if draft_status == "登録済" or draft_status.startswith("gmailエラー"):
-                 status_area.caption(f"  スキップ (行 {sheet_row_number}): I列が '{row[COL_INDEX_DRAFT_STATUS]}' です。")
-                 skip_count += 1
-                 continue
-            
-            # H列 (担当アカウント) チェック
-            if row[COL_INDEX_HANDLER].strip().upper() != target_account_key:
-                 status_area.caption(f"  スキップ (行 {sheet_row_number}): H列の担当アカウントが '{target_account_key}' ではありません。")
-                 skip_count += 1
-                 continue
-            
-            # 必須データ抽出と件名生成
-            try:
-                location = row[COL_INDEX_LOCATION].strip() 
-                store_name = row[COL_INDEX_STORE].strip() 
-                media_name = row[COL_INDEX_MEDIA].strip() 
-                post_time = row[COL_INDEX_TIME].strip() 
-                name = row[COL_INDEX_NAME].strip() 
-                subject_title_safe = row[COL_INDEX_TITLE].strip()
-                original_body_safe = row[COL_INDEX_BODY] 
-                
-                if not (location and store_name and media_name and post_time and name and subject_title_safe and original_body_safe):
-                    status_area.warning(f"  警告 (行 {sheet_row_number}): 必須項目に空欄がありスキップしました。")
-                    update_sheet_status(sheets_service, sheet_row_number, COL_INDEX_DRAFT_STATUS, "データ不足")
-                    skip_count += 1
-                    continue
-
-                # 投稿時間の整形 (ここでゼロ埋めを行い、APIが期待する4桁にする)
-                raw_time_str = str(post_time).replace(':', '')
-                formatted_time = raw_time_str.zfill(4)
-                
-                # 件名に含まれる識別子生成のために氏名から括弧内を削除
-                name_cleaned = re.sub(r'[（\(][^）\)]+[）\)]', '', name).strip()
-                
-                # 件名形式: [時刻] [タイトル] #[エリア] [店名] [媒体名] [女の子の名前]
-                original_subject = f"{formatted_time} {subject_title_safe}"
-                identifier = f"#{location} {store_name} {media_name} {name_cleaned}"
-                final_subject = f"{original_subject}{identifier}"
-
-                raw_message = create_raw_draft_message(final_subject, original_body_safe)
-
-            except Exception:
-                status_area.error(f"  エラー (行 {sheet_row_number}): データ整形中にエラーが発生しました。")
-                update_sheet_status(sheets_service, sheet_row_number, COL_INDEX_DRAFT_STATUS, "データエラー")
-                skip_count += 1
-                continue
-            
-            # 3. Gmail 下書き作成
-            try:
-                # 担当アカウントのメールアドレスを Gmail API の `userId` として使用
-                message = {'message': {'raw': raw_message}}
-                
-                # 【重要】サービスアカウントにドメイン全体の委任が設定されていることが前提
-                gmail_service.users().drafts().create(userId=target_email, body=message).execute()
-                
-                update_sheet_status(sheets_service, sheet_row_number, COL_INDEX_DRAFT_STATUS, "登録済")
-                status_area.caption(f"  ✅ 下書き作成成功: 行 {sheet_row_number} - 件名: {final_subject[:30]}...")
-                success_count += 1
-                
-            except HttpError as err:
-                # APIからの詳細エラーメッセージをシートに書き込む
-                status_text = f"Gmailエラー:{err.resp.status} ({err.resp.reason[:20]}...)"
-                update_sheet_status(sheets_service, sheet_row_number, COL_INDEX_DRAFT_STATUS, status_text)
-                
-                if err.resp.status in [403]:
-                    status_area.error(f"❌ 行 {sheet_row_number}: **{status_text}** -> **ドメイン全体の委任権限（DWD）** を確認してください。")
-                else:
-                    status_area.error(f"❌ 行 {sheet_row_number}: {status_text} - APIエラーが発生しました。")
-                    
-            except Exception as e:
-                update_sheet_status(sheets_service, sheet_row_number, COL_INDEX_DRAFT_STATUS, "予期せぬエラー")
-                status_area.error(f"❌ 行 {sheet_row_number}: 予期せぬエラーが発生しました: {e}")
-
-        status_area.success(f"🎉 Step 2: 下書き作成が完了しました。成功件数: **{success_count}** 件 (スキップ: {skip_count} 件)。")
-        return True
-
-    except Exception as e:
-        status_area.exception(f"致命的なエラーが発生しました: {e}")
-        return False
-
-# --------------------------
-# Step 3: 画像添付
-# --------------------------
-def extract_time_from_draft(subject):
-    """件名から HHMM 形式の時刻を抽出する。"""
-    match = re.search(r'(\d{4})', subject)
-    if match:
-        try:
-            return datetime.datetime.strptime(match.group(1), '%H%M').time()
-        except ValueError:
-            return None
-    return None
-
-def calculate_time_diff(draft_time, file_time_str):
-    """下書きの時刻とファイル名から抽出した時刻の差分を分単位で計算する。"""
-    try:
-        file_time = datetime.datetime.strptime(file_time_str, '%H%M').time()
-        
-        today = datetime.date.today()
-        dt_draft = datetime.datetime.combine(today, draft_time)
-        dt_file = datetime.datetime.combine(today, file_time)
-        
-        # 23:00と00:01のように日付を跨ぐ場合を考慮 (12時間以上の差は日付違いと仮定)
-        time_diff_minutes = (dt_file - dt_draft).total_seconds() / 60
-        
-        if abs(time_diff_minutes) > 720: # 12時間以上離れている場合
-             # file_timeがdraft_timeより極端に前なら1日進める、逆なら1日戻す
-            if time_diff_minutes < -720:
-                dt_file += datetime.timedelta(days=1)
-            else:
-                dt_file -= datetime.timedelta(days=1)
-                
-            time_diff_minutes = (dt_file - dt_draft).total_seconds() / 60
-
-        return abs(time_diff_minutes)
-    except ValueError:
-        return float('inf')
-
-def find_matching_image_in_drive(drive_service, row, full_subject, status_area):
-    """Google Drive内で条件に合う画像を検索し、最も近い時刻の画像IDを返す。"""
-    
-    draft_time = extract_time_from_draft(full_subject)
-    if not draft_time:
-        return None, "件名から時刻(HHMM)を抽出できませんでした。"
-
-    # 1. フォルダ階層の特定
-    location_name = row[COL_INDEX_LOCATION].strip()
-    store_name_base = row[COL_INDEX_STORE].strip()
-    media_type = row[COL_INDEX_MEDIA].strip()
-    
-    # Step 1 で定義されたフォルダ名決定ロジック
-    store_folder_name = f"デリじゃ {store_name_base}" if media_type == "デリじゃ" else store_name_base
-    
-    try:
-        # エリアフォルダ検索
-        area_folder_id = find_folder_by_name(drive_service, location_name, DRIVE_FOLDER_ID)
-        if not area_folder_id:
-            return None, f"エリアフォルダが見つかりません: {location_name}"
-        
-        # 店舗フォルダ検索
-        target_folder_id = find_folder_by_name(drive_service, store_folder_name, area_folder_id)
-        if not target_folder_id:
-            return None, f"店舗フォルダが見つかりません: {store_folder_name}"
-
-        # 2. 最終フォルダ内でファイル名のキーワードを含む画像を検索 (E列:女の子の名前)
-        person_name = row[COL_INDEX_NAME].strip()
-        person_name_cleaned = re.sub(r'[（\(][^）\)]+[）\)]', '', person_name).strip()
-        
-        file_query = (
-            f"'{target_folder_id}' in parents and "
-            f"mimeType contains 'image/' and "
-            f"name contains '{person_name_cleaned}' and "
-            f"trashed = false"
-        )
-        
-        results = drive_service.files().list(
-            q=file_query, 
-            fields="files(id, name)",
-            pageSize=100
-        ).execute()
-        items = results.get('files', [])
-
-        if not items:
-            return None, f"指定フォルダ内でファイル名に氏名'{person_name_cleaned}'を含む画像が見つかりませんでした。"
-
-        # 3. 時刻の近さでフィルタリング
-        best_match = None
-        min_diff = MAX_TIME_DIFF_MINUTES
-        
-        for item in items:
-            # Step 1 のアップロードファイル名形式: HHMM_名前.ext を想定
-            file_time_match = re.search(r'^(\d{4})_', item['name'])
-            if file_time_match:
-                file_time_str = file_time_match.group(1)
-                diff = calculate_time_diff(draft_time, file_time_str)
-                
-                if diff < min_diff:
-                    min_diff = diff
-                    best_match = item
-        
-        if best_match:
-            # 成功時にファイル名も返す
-            return best_match['id'], best_match['name']
-        else:
-            return None, f"時刻条件({MAX_TIME_DIFF_MINUTES}分以内)を満たす画像が見つかりませんでした。"
-
-    except HttpError as error:
-        return None, f"Google Drive APIエラー: {error}"
-    except Exception as e:
-        return None, f"検索中に予期せぬエラーが発生しました: {e}"
-
-def update_draft_with_attachment(gmail_service, drive_service, draft_id, file_id, file_name, user_id):
-    """Gmail下書きにGoogle Driveの画像を添付して更新する。"""
-
-    # 1. Driveから画像のコンテンツを取得
-    response = drive_service.files().get_media(fileId=file_id)
-    image_data = response.execute()
-
-    # 2. 既存の下書きデータを取得し、パース
-    # user_idとして担当アカウントのメールアドレスを指定
-    draft_raw = gmail_service.users().drafts().get(userId=user_id, id=draft_id, format='raw').execute()
-    existing_raw_bytes = base64.urlsafe_b64decode(draft_raw['message']['raw'])
-    original_msg = BytesParser(policy=default).parsebytes(existing_raw_bytes)
-    
-    # 3. メッセージの準備（Multipartへの変換）
-    msg_to_update = MIMEMultipart()
-    
-    # 既存のヘッダーを新しいMultipartに追加
-    for header, value in original_msg.items():
-        # Content-TypeはMultipartで再設定されるためスキップ
-        if header.lower() != 'content-type':
-            msg_to_update[header] = value
-    
-    # 元のペイロード（テキスト部分）を新しいMultipartに追加
-    if original_msg.is_multipart():
-        for part in original_msg.get_payload():
-            msg_to_update.attach(part)
-    else:
-        # Non-Multipartの場合、元のメッセージをテキストパートとして追加
-        msg_to_update.attach(original_msg)
-        
-    # 4. 新しい添付ファイル（画像パート）を作成し、メッセージに追加
-    image = MIMEImage(image_data, name=file_name)
-    msg_to_update.attach(image)
-    
-    # 5. 下書きを更新
-    raw_message_updated = msg_to_update.as_bytes(policy=default) 
-    raw_message_encoded = base64.urlsafe_b64encode(raw_message_updated).decode()
-    
-    # 更新リクエストボディを作成
-    draft_update_body = {
-        'id': draft_id,
-        'message': {'raw': raw_message_encoded}
-    }
-
-    gmail_service.users().drafts().update(userId=user_id, id=draft_id, body=draft_update_body).execute()
-    return True
-
-def execute_step_3(sheets_service, drive_service, gmail_service, target_account_key, status_area):
-    """Step 3: 画像添付処理を実行する"""
-    
-    target_email = ACCOUNT_MAPPING.get(target_account_key)
-    if not target_email:
-        status_area.error(f"エラー: 不明なターゲットアカウントキー '{target_account_key}'")
-        return False
-
-    status_area.info(f"--- Step 3: {target_account_key} の画像添付処理を開始します ---")
-
-    try:
-        # 1. シートからデータを取得 (A:K) - 文字列として取得
-        result = sheets_service.spreadsheets().values().get(
-            spreadsheetId=SHEET_ID, 
-            range=f"{REGISTRATION_SHEET}!A:K"
-        ).execute()
-        values = result.get('values', [])
-        
-        if not values or len(values) <= 1:
-            status_area.warning("スプレッドシートにデータがありません。終了します。")
-            return True
-
-        data_rows = values[1:]
-        success_count = 0
-        
-        for index, row in enumerate(data_rows):
-            sheet_row_number = index + 2 
-            
-            if len(row) < COL_INDEX_RECIPIENT_STATUS + 1:
-                 row.extend([''] * (COL_INDEX_RECIPIENT_STATUS + 1 - len(row)))
-            
-            # 実行条件チェック
-            if row[COL_INDEX_IMAGE_STATUS].strip().lower() == "登録済" or row[COL_INDEX_IMAGE_STATUS].strip().lower().startswith("失敗"):
-                 continue
-            if row[COL_INDEX_HANDLER].strip().upper() != target_account_key:
-                 continue
-            if row[COL_INDEX_DRAFT_STATUS].strip().lower() != "登録済":
-                 continue
-                 
-            # 2. 件名生成 (Step 2と同じロジックで下書き検索用件名を再構築)
-            try:
-                location = row[COL_INDEX_LOCATION].strip() 
-                store_name = row[COL_INDEX_STORE].strip() 
-                media_name = row[COL_INDEX_MEDIA].strip() 
-                post_time = row[COL_INDEX_TIME].strip() 
-                name = row[COL_INDEX_NAME].strip() 
-                subject_title_safe = row[COL_INDEX_TITLE].strip()
-
-                raw_time_str = str(post_time).replace(':', '')
-                formatted_time = raw_time_str.zfill(4)
-                name_cleaned = re.sub(r'[（\(][^）\)]+[）\)]', '', name).strip()
-                
-                original_subject = f"{formatted_time} {subject_title_safe}"
-                identifier = f"#{location} {store_name} {media_name} {name_cleaned}"
-                full_subject = f"{original_subject}{identifier}"
-
-            except Exception:
-                update_sheet_status(sheets_service, sheet_row_number, COL_INDEX_IMAGE_STATUS, "失敗:データエラー")
-                continue
-            
-            # 3. Google Driveで画像を検索
-            file_id, result_detail = find_matching_image_in_drive(drive_service, row, full_subject, status_area)
-            
-            if not file_id:
-                update_sheet_status(sheets_service, sheet_row_number, COL_INDEX_IMAGE_STATUS, f"失敗:{result_detail[:20]}")
-                continue
-
-            # 4. Gmail で下書きを検索 (対象アカウントのメールアドレスで検索)
-            query = f'in:draft subject:"{full_subject}"'
-            response = gmail_service.users().drafts().list(userId=target_email, q=query).execute()
-            drafts = response.get('drafts', [])
-            
-            if len(drafts) != 1:
-                update_sheet_status(sheets_service, sheet_row_number, COL_INDEX_IMAGE_STATUS, "失敗:下書き重複/未検出")
-                continue
-            
-            draft_id = drafts[0]['id']
-
-            # 5. 下書きを更新
-            try:
-                execute_success = update_draft_with_attachment(gmail_service, drive_service, draft_id, file_id, result_detail, target_email)
-                
-                if execute_success:
-                    update_sheet_status(sheets_service, sheet_row_number, COL_INDEX_IMAGE_STATUS, "登録済")
-                    success_count += 1
-                else:
-                    update_sheet_status(sheets_service, sheet_row_number, COL_INDEX_IMAGE_STATUS, f"失敗:更新APIエラー")
-            except Exception as e:
-                update_sheet_status(sheets_service, sheet_row_number, COL_INDEX_IMAGE_STATUS, f"失敗:予期せぬエラー")
-                status_area.error(f"❌ 画像添付エラー ({sheet_row_number}行目): {e}")
-
-        status_area.success(f"🎉 Step 3: 画像添付が完了しました。成功件数: **{success_count}** 件。")
-        return True
-
-    except Exception as e:
-        status_area.exception(f"致命的なエラーが発生しました: {e}")
-        return False
-
-# --------------------------
-# Step 5: 履歴移動
-# --------------------------
 def execute_step_5(gc, sheets_service, status_area):
     """Step 5: K列が「登録済」の行を履歴シートに移動し、元のシートから削除する"""
     
-    status_area.info("🔄 Step 5: **実行済みデータ**を履歴シートへ移動中...")
+    status_area.info("🔄 実行済みデータ**を履歴シートへ移動中...")
 
+    # NOTE: Tab 2削除により、K列(宛先登録確認)が「登録済」になる処理はアプリ上では実行されなくなります。
+    # この関数は、外部スクリプトなどでK列が「登録済」になったデータが存在することを前提とします。
+    
     try:
         # 1. データの読み込み (ヘッダーも含むA:K列) - 文字列として取得
         result = sheets_service.spreadsheets().values().get(
@@ -679,13 +265,16 @@ def execute_step_5(gc, sheets_service, status_area):
         rows_to_move = []
         rows_to_delete_index = [] # 削除する行のインデックス (0から開始, ヘッダーを含まない)
         
+        # K列のインデックスが REGISTRATION_HEADERS の COL_INDEX_RECIPIENT_STATUS (10) であることを確認
+        col_k_index = COL_INDEX_RECIPIENT_STATUS
+        
         for index, row in enumerate(data_rows):
             # K列までデータがない場合の対応
-            if len(row) < COL_INDEX_RECIPIENT_STATUS + 1:
-                 row.extend([''] * (COL_INDEX_RECIPIENT_STATUS + 1 - len(row)))
+            if len(row) < col_k_index + 1:
+                 row.extend([''] * (col_k_index + 1 - len(row)))
             
             # K列 (宛先登録確認) が「登録済」の場合
-            if row[COL_INDEX_RECIPIENT_STATUS].strip() == "登録済":
+            if row[col_k_index].strip() == "登録済":
                 rows_to_move.append(row)
                 rows_to_delete_index.append(index) # ヘッダーを含まないインデックス
 
@@ -717,7 +306,7 @@ def execute_step_5(gc, sheets_service, status_area):
              except Exception as e:
                  status_area.error(f"❌ {REGISTRATION_SHEET} から {row_num} 行目の削除に失敗しました: {e}")
 
-        status_area.success(f"🎉 Step 5: 実行済みデータが履歴シートへ移動・削除されました。（**{len(rows_to_move)}** 行）")
+        status_area.success(f"🎉 実行済みデータが履歴シートへ移動・削除されました。（**{len(rows_to_move)}** 行）")
         return True
         
     except Exception as e:
@@ -725,55 +314,19 @@ def execute_step_5(gc, sheets_service, status_area):
         return False
 
 
-# --- 実行ボタンのハンドラ関数 ---
-
-def run_step(step_num, action_desc):
-    """実行ステップのハンドラ (Step 1, 2, 3, 4)"""
+def run_move_to_history():
+    """履歴へ移動実行ハンドラ"""
     
-    # 担当アカウントはセッションステートから取得
-    target_account_key = st.session_state.global_account 
-    
-    # ログ表示エリアの取得
-    status_area_placeholder = st.session_state.last_run_status_placeholder
-
-    if status_area_placeholder is None:
-        # 万が一プレースホルダーがない場合の安全措置
-        st.error("ログ表示エリアの初期化エラーです。アプリを再読み込みしてください。")
-        return
-
-    # プレースホルダーをクリアして、新しいコンテナを作成
-    status_area = status_area_placeholder.container() 
-
-    if step_num == 1:
-        status_area.info("🚨 Step 1 (アドレス/連絡先更新) は **People API** を利用するため、**アプリ上では実行できません**。ローカルスクリプトを実行してください。")
-        status_area.success(f"✅ Step 1: **{action_desc}** の処理ロジックは確認済みです。")
-        return
-
-    elif step_num == 2:
-        execute_step_2(SHEETS_SERVICE, GMAIL_SERVICE, target_account_key, status_area)
-
-    elif step_num == 3:
-        execute_step_3(SHEETS_SERVICE, DRIVE_SERVICE, GMAIL_SERVICE, target_account_key, status_area)
-
-    elif step_num == 4:
-        status_area.info("🚨 Step 4 (宛先登録実行) は **People API** を利用するため、**アプリ上では実行できません**。ローカルスクリプトを実行してください。")
-        status_area.success(f"✅ Step 4: **{action_desc}** の処理ロジックは確認済みです。")
-        return
-    
-    # 最終的な実行ログのフッター
-    status_area.markdown("---")
-    status_area.info(f"最終実行時刻: {time.strftime('%H:%M:%S')}")
-
-
-def run_step_5_move_to_history():
-    """Step 5: 履歴へ移動（新規機能）"""
+    # ログ表示エリアの初期化
+    if 'last_run_status_placeholder' not in st.session_state:
+        st.session_state.last_run_status_placeholder = st.empty()
     
     status_area_placeholder = st.session_state.last_run_status_placeholder
-    if status_area_placeholder is None:
-        st.error("ログ表示エリアの初期化エラーです。アプリを再読み込みしてください。")
-        return
-        
     status_area = status_area_placeholder.container()
+    
+    # 実行前に最終警告を表示
+    status_area.warning("⚠️ **履歴移動処理を開始します。** (K列が'登録済'のデータが対象です)")
+    
     execute_step_5(SPRS, SHEETS_SERVICE, status_area)
     
     status_area.markdown("---")
@@ -829,27 +382,32 @@ st.title("✨ 写メ日記投稿管理アプリ - Daily Posting Manager")
 
 # --- セッションステートの初期化 ---
 if 'diary_entries' not in st.session_state:
-    initial_entry = {header: "" for header in INPUT_HEADERS if header not in ["媒体", "担当アカウント"]}
+    # 必須入力ヘッダーのみを使用
+    initial_entry = {header: "" for header in INPUT_HEADERS}
     initial_entry['画像ファイル'] = None 
     
     st.session_state.diary_entries = [initial_entry.copy() for _ in range(40)]
 
+# 【変更点】global_media は保持、global_account は削除
 if 'global_media' not in st.session_state:
     st.session_state.global_media = MEDIA_OPTIONS[0]
-if 'global_account' not in st.session_state:
-    st.session_state.global_account = ACCOUNT_OPTIONS[0]
 
-# 【修正済み: ログ表示のプレースホルダーを初期化】
+# 【新規】エリアと店名の共通入力用ステート
+if 'global_area' not in st.session_state:
+    st.session_state.global_area = ""
+if 'global_store' not in st.session_state:
+    st.session_state.global_store = ""
+    
+# 【変更点】ログ表示のプレースホルダーを初期化 (Step 5用)
 if 'last_run_status_placeholder' not in st.session_state:
     st.session_state.last_run_status_placeholder = None 
 
 
-# タブの定義
-tab1, tab2, tab3, tab4 = st.tabs([
+# 【変更点】タブの定義 (Tab 2削除により Tab 3 -> 2, Tab 4 -> 3 に繰り上げ)
+tab1, tab2, tab3 = st.tabs([
     "📝 ① データ登録・画像アップロード", 
-    "🚀 ② 下書き作成・実行", 
-    "📂 ③ 自動投稿データの検索・管理", 
-    "📚 ④ 使用可能日記全文表示" 
+    "📂 ② 自動投稿データの検索・管理", 
+    "📚 ③ 使用可能日記全文表示" 
 ])
 
 # =========================================================
@@ -860,31 +418,36 @@ with tab1:
     st.header("1️⃣ データ準備・入力")
     
     st.subheader("📖 日記使用可能文（コピペ用）")
-    st.info("💡 **コピペ補助**：全画面でテンプレートを表示・コピペする場合は、**「📚 ④ 使用可能日記全文表示」タブ**をご利用ください。")
+    st.info("💡 **コピペ補助**：全画面でテンプレートを表示・コピペする場合は、**「📚 ③ 使用可能日記全文表示」タブ**をご利用ください。")
     st.markdown("---")
     
     # --- B. 40件の日記データ入力 (常時展開・本文枠大) ---
     st.subheader("2️⃣ 登録用データ入力と画像アップロード (最大40件)")
 
-    # **媒体と担当アカウントの全体設定（全体適用）**
+    # **媒体、エリア、店名の全体設定（全体適用）**
     st.markdown("#### ⚙️ 全体設定 (40件すべてに適用されます)")
-    cols_global = st.columns(2)
+    cols_global = st.columns([1, 2, 2])
+    
+    # 媒体 (プルダウン)
     st.session_state.global_media = cols_global[0].selectbox("🌐 媒体", MEDIA_OPTIONS, key='global_media_select')
-    st.session_state.global_account = cols_global[1].selectbox("👤 担当アカウント", ACCOUNT_OPTIONS, key='global_account_select')
+    
+    # 【変更点】エリア、店名を共通入力にする (テキスト入力)
+    st.session_state.global_area = cols_global[1].text_input("📍 エリア", value=st.session_state.global_area, key='global_area_input')
+    st.session_state.global_store = cols_global[2].text_input("🏢 店名", value=st.session_state.global_store, key='global_store_input')
     
     st.warning("⚠️ **重要**：画像ファイル名は**投稿時間(hhmm)**と**女の子の名前**から自動生成されます。必ず入力してください。")
 
     with st.form("diary_registration_form"):
         
         # ヘッダー行 (UIに表示される項目のみ)
-        col_header = st.columns([1, 1, 1, 2, 3, 1, 2]) 
-        col_header[0].markdown("📍 **エリア**")
-        col_header[1].markdown("🏢 **店名**")
-        col_header[2].markdown("⏰ **投稿時間**")
+        # 【変更点】カラム構成の変更: 媒体(1), 投稿時間(1), 女の子名(1), タイトル(2), 本文(3), 画像(2)
+        col_header = st.columns([1, 1, 1, 2, 3, 2]) 
+        col_header[0].markdown("🌐 **媒体**")
+        col_header[1].markdown("⏰ **投稿時間**")
+        col_header[2].markdown("👧 **女の子名**")
         col_header[3].markdown("📝 **タイトル**")
         col_header[4].markdown("📖 **本文**")
-        col_header[5].markdown("👧 **女の子名**")
-        col_header[6].markdown("📷 **画像ファイル**")
+        col_header[5].markdown("📷 **画像ファイル**")
 
         st.markdown("<hr style='border: 1px solid #ddd; margin: 10px 0;'>", unsafe_allow_html=True) 
         
@@ -893,20 +456,18 @@ with tab1:
             entry = st.session_state.diary_entries[i]
             
             # 1行を構成する列を定義
-            cols = st.columns([1, 1, 1, 2, 3, 1, 2]) 
+            cols = st.columns([1, 1, 1, 2, 3, 2]) 
             
             # --- テキスト入力 ---
-            entry['エリア'] = cols[0].text_input("", value=entry['エリア'], key=f"エリア_{i}", label_visibility="collapsed") 
-            entry['店名'] = cols[1].text_input("", value=entry['店名'], key=f"店名_{i}", label_visibility="collapsed") 
-            entry['投稿時間'] = cols[2].text_input("", value=entry['投稿時間'], key=f"時間_{i}", label_visibility="collapsed") 
+            entry['媒体'] = cols[0].selectbox("媒体", MEDIA_OPTIONS, key=f"媒体_{i}", index=MEDIA_OPTIONS.index(st.session_state.global_media), label_visibility="collapsed")
+            entry['投稿時間'] = cols[1].text_input("時間", value=entry['投稿時間'], key=f"時間_{i}", label_visibility="collapsed") 
+            entry['女の子の名前'] = cols[2].text_input("名前", value=entry['女の子の名前'], key=f"名_{i}", label_visibility="collapsed")
             
-            entry['タイトル'] = cols[3].text_area("", value=entry['タイトル'], key=f"タイトル_{i}", height=50, label_visibility="collapsed")
-            entry['本文'] = cols[4].text_area("", value=entry['本文'], key=f"本文_{i}", height=100, label_visibility="collapsed")
-
-            entry['女の子の名前'] = cols[5].text_input("", value=entry['女の子の名前'], key=f"名_{i}", label_visibility="collapsed") 
+            entry['タイトル'] = cols[3].text_area("タイトル", value=entry['タイトル'], key=f"タイトル_{i}", height=50, label_visibility="collapsed")
+            entry['本文'] = cols[4].text_area("本文", value=entry['本文'], key=f"本文_{i}", height=100, label_visibility="collapsed")
             
             # --- 画像アップロード ---
-            with cols[6]:
+            with cols[5]:
                 uploaded_file = st.file_uploader(
                     "画像",
                     type=['png', 'jpg', 'jpeg'],
@@ -925,16 +486,22 @@ with tab1:
         submitted = st.form_submit_button("🔥 登録データと画像を Google Sheets/Drive に格納して実行準備完了", type="primary")
 
         if submitted:
+            # 共通入力のチェック
+            common_area = st.session_state.global_area.strip()
+            common_store = st.session_state.global_store.strip()
+            
+            if not common_area or not common_store:
+                st.error("❌ エリア名と店名は必ず入力してください。")
+                st.stop()
+                
             valid_entries_and_files = []
             
             for entry in st.session_state.diary_entries:
-                input_check_headers = ["エリア", "店名", "投稿時間", "女の子の名前", "タイトル", "本文"]
+                input_check_headers = ["投稿時間", "女の子の名前", "タイトル", "本文"]
+                # 必須項目が一つでも入力されていれば有効なエントリーと見なす
                 is_data_filled = any(entry.get(h) and entry.get(h) != "" for h in input_check_headers)
                 
                 if is_data_filled:
-                    # 全体設定の媒体とアカウントをここで確定させる
-                    entry['媒体'] = st.session_state.global_media
-                    entry['担当アカウント'] = st.session_state.global_account
                     valid_entries_and_files.append(entry)
             
             if not valid_entries_and_files:
@@ -947,8 +514,14 @@ with tab1:
             
             for i, entry in enumerate(valid_entries_and_files):
                 if entry['画像ファイル']:
-                    # drive_upload_wrapper を呼び出し、動的フォルダ作成とアップロードを実行
-                    file_id = drive_upload_wrapper(entry['画像ファイル'], entry, DRIVE_SERVICE)
+                    # drive_upload_wrapper に共通のエリアと店名を渡す
+                    file_id = drive_upload_wrapper(
+                        entry['画像ファイル'], 
+                        entry, 
+                        common_area, 
+                        common_store, 
+                        DRIVE_SERVICE
+                    )
                     if file_id:
                         uploaded_count += 1
                 else:
@@ -961,13 +534,21 @@ with tab1:
                 ws = SPRS.worksheet(REGISTRATION_SHEET)
                 
                 final_data = []
+                # 担当アカウントは一旦 A で固定としておく (外部の自動化スクリプトとの連携のため)
+                FIXED_HANDLER_ACCOUNT = "A" 
+                
                 for entry in valid_entries_and_files:
                     row_data = [
-                        entry['エリア'], entry['店名'], entry['媒体'], 
-                        entry['投稿時間'], entry['女の子の名前'], entry['タイトル'],
-                        entry['本文'], entry['担当アカウント'] 
+                        common_area,       # A列: エリア (共通)
+                        common_store,      # B列: 店名 (共通)
+                        entry['媒体'],     # C列: 媒体
+                        entry['投稿時間'], # D列: 投稿時間
+                        entry['女の子の名前'], # E列: 女の子の名前
+                        entry['タイトル'], # F列: タイトル
+                        entry['本文'],     # G列: 本文
+                        FIXED_HANDLER_ACCOUNT # H列: 担当アカウント (固定)
                     ]
-                    # I, J, K 列は空白で追加する
+                    # I, J, K 列は空欄で追加する (自動化フロー用)
                     row_data.extend(['', '', '']) 
                     final_data.append(row_data)
 
@@ -982,72 +563,48 @@ with tab1:
 
 
 # =========================================================
-# --- Tab 2: 下書き作成・実行 ---
+# --- Tab 2: 自動投稿データの検索・管理 (旧 Tab 3) ---
 # =========================================================
 
 with tab2:
-    st.header("2️⃣ 投稿実行フロー")
+    st.header("2️⃣ 自動投稿データの検索・管理")
     
-    st.error("🚨 **警告**: このタブの実行前に、必ず『日記登録用シート』のデータ内容を最終確認してください。")
-
-    execution_steps = [
-        ("Step 1: アドレス/連絡先更新", lambda: run_step(1, "アドレスと連絡先の更新")),
-        ("Step 2: Gmail下書き作成", lambda: run_step(2, "Gmailの下書き作成")),
-        ("Step 3: 画像添付/確認", lambda: run_step(3, "画像の添付と登録状況確認")),
-        ("Step 4: 宛先登録実行", lambda: run_step(4, "下書きへの宛先登録")),
-    ]
-
-    # 実行ボタンをカード風に配置
-    cols = st.columns(4)
+    st.subheader("📊 現在の登録データと実行状況")
     
-    for i, (label, func) in enumerate(execution_steps):
-        with cols[i]:
-            st.markdown(f"""
-            <div style='border: 2px solid #ddd; padding: 10px; border-radius: 10px; text-align: center; background-color: #f9f9f9;'>
-                <p style='font-weight: bold; margin-bottom: 5px; color: #444;'>{label}</p>
-                {st.button("▶️ 実行", key=f'step_btn_{i+1}', use_container_width=True, on_click=func)}
-            </div>
-            """, unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    # 実行結果のログエリア (プレースホルダーをここで作成し、セッションステートに保持)
-    st.subheader("📝 実行ログ")
-    if st.session_state.last_run_status_placeholder is None:
-        st.session_state.last_run_status_placeholder = st.empty()
-    
-    # ログを更新するためにプレースホルダーを利用。ここでは明示的な表示は不要。
-    
-    st.subheader("📊 登録データの実行状況")
     try:
-        # 【✨修正箇所】 get_all_records() を避け、get_all_values() で全データを文字列として取得する
-        ws = SPRS.worksheet(REGISTRATION_SHEET)
-        all_values = ws.get_all_values()
+        # get_all_values() で全データを文字列として取得 (hhmmの0落ち対策)
+        ws_reg = SPRS.worksheet(REGISTRATION_SHEET)
+        reg_values = ws_reg.get_all_values()
         
-        if all_values and len(all_values) > 1:
-            # 最初の行をヘッダーとし、残りをデータとしてDataFrameを作成
-            df_status = pd.DataFrame(all_values[1:], columns=all_values[0])
-            st.dataframe(df_status, use_container_width=True, hide_index=True)
+        if reg_values and len(reg_values) > 1:
+            df_status = pd.DataFrame(reg_values[1:], columns=reg_values[0])
+            # A列からK列までを表示
+            display_cols = REGISTRATION_HEADERS
+            st.dataframe(df_status[display_cols], use_container_width=True, hide_index=True)
         else:
             st.info("「日記登録用」シートにデータがありません。")
 
     except Exception as e:
         st.info(f"シートの読み込みエラー: {e}")
 
-    st.markdown("<hr style='border: 1px solid #f00;'>", unsafe_allow_html=True)
+    st.markdown("---")
 
-    st.subheader("✅ Step 5: 実行済みデータの履歴移動")
-    st.error("Step 1〜4がすべて成功し、**安全を確認した上で**、このボタンを押してください。データはシートから削除されます。")
-    if st.button("➡️ Step 5: 実行完了データを履歴へ移動・削除", key='step_btn_5_move', type="primary", use_container_width=True, on_click=run_step_5_move_to_history):
-        pass # on_clickで実行されるため、ここでは何もしない
+    # --- 実行済みデータの履歴移動 ---
+    st.subheader("✅ 実行済みデータの履歴移動")
+    st.error("外部スクリプトなどで処理が完了し、**安全を確認した上で**、このボタンを押してください。K列が '登録済' のデータはシートから削除され、履歴へ移動します。")
+    if st.button("➡️ 実行完了データを履歴へ移動・削除", key='move_to_history_btn', type="primary", use_container_width=True, on_click=run_move_to_history):
+        pass # on_clickで実行される
+        
+    st.subheader("📝 実行ログ (履歴移動)")
+    # 履歴移動のログエリア
+    if st.session_state.last_run_status_placeholder is None:
+        st.session_state.last_run_status_placeholder = st.empty()
 
 
-# =========================================================
-# --- Tab 3: 自動投稿データの検索・管理 ---
-# =========================================================
+    st.markdown("---")
 
-with tab3:
-    st.header("3️⃣ 自動投稿データの検索・管理")
+    # --- A. 履歴データの検索と修正 ---
+    st.subheader("🔍 投稿データの修正 (履歴)")
     
     try:
         # 履歴シートも文字列として読み込む
@@ -1063,11 +620,6 @@ with tab3:
         df_history = pd.DataFrame()
         st.warning(f"履歴シートの読み込みに失敗しました。")
         
-    st.markdown("---")
-
-    # --- A. 履歴データの検索と修正 (機能 B: Gmail連動修正) ---
-    st.subheader("🔍 投稿データの修正")
-    
     if not df_history.empty:
         edited_history_df = st.data_editor(
             df_history,
@@ -1080,14 +632,14 @@ with tab3:
             }
         )
         
-        if st.button("🔄 修正内容を保存しGmail下書きを連動修正", type="secondary"):
+        if st.button("🔄 修正内容を保存しGmail下書きを連動修正（外部処理）", type="secondary"):
             st.success("✅ データとGmail下書きの修正が完了しました。（機能 B）")
     else:
         st.info("履歴データがありません。")
         
     st.markdown("---")
 
-    # --- B. 店舗閉め・アーカイブ機能 (機能 C) ---
+    # --- B. 店舗閉め・アーカイブ機能 ---
     st.subheader("📦 店舗閉め・アーカイブ機能")
     
     if not df_history.empty:
@@ -1107,11 +659,11 @@ with tab3:
 
 
 # =========================================================
-# --- Tab 4: テンプレート全文表示 ---
+# --- Tab 3: テンプレート全文表示 (旧 Tab 4) ---
 # =========================================================
 
-with tab4:
-    st.header("4️⃣ 使用可能日記全文表示・コピペ用") 
+with tab3:
+    st.header("3️⃣ 使用可能日記全文表示・コピペ用") 
 
     try:
         # テンプレート用のSpreadsheet IDで接続し、全データを文字列として取得
