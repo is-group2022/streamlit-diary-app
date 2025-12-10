@@ -57,10 +57,10 @@ except KeyError:
     st.stop()
 
 
-# 【修正点】「下書き登録確認」, 「画像添付確認」, 「宛先登録確認」の3項目を削除
-# 最終確定した「日記登録用シート」のヘッダー定義 (7項目)
+# 【修正点】「担当アカウント」を「投稿ステータス」に変更
+# 最終確定した「日記登録用シート」のヘッダー定義 (8項目)
 REGISTRATION_HEADERS = [
-    "エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文", "担当アカウント"
+    "エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文", "投稿ステータス"
 ]
 # 入力に必要なヘッダー
 INPUT_HEADERS = ["投稿時間", "女の子の名前", "タイトル", "本文"]
@@ -73,10 +73,9 @@ COL_INDEX_TIME = 3     # D列: 投稿時間
 COL_INDEX_NAME = 4     # E列: 女の子の名前
 COL_INDEX_TITLE = 5    # F列: タイトル
 COL_INDEX_BODY = 6     # G列: 本文
-COL_INDEX_HANDLER = 7  # H列: 担当アカウント
+COL_INDEX_HANDLER = 7  # H列: 投稿ステータス
 
-# 【修正点】不要になった定数を削除
-# COL_INDEX_RECIPIENT_STATUS = 10 (不要)
+# 【修正点】不要になった COL_INDEX_RECIPIENT_STATUS を削除
 
 
 # --- 2. Google API連携関数 ---
@@ -90,6 +89,7 @@ def connect_to_gsheets(sheet_id):
         return spreadsheet
     except Exception as e:
         st.error(f"❌ Google Sheets ({sheet_id}) への接続に失敗しました: {e}")
+        # APIError 429の場合、再試行または停止が必要だが、ここでは停止を選択
         st.stop()
         
 # 実際の接続を実行
@@ -240,12 +240,11 @@ def drive_upload_wrapper(uploaded_file, entry, area_name, store_name_base, drive
 # --- 3. 実行ロジック (Tab 2: 履歴移動) ---
 
 def execute_step_5(gc, sheets_service, sheet_name, status_area):
-    """【注意】K列が「登録済」の行を履歴シートに移動し、元のシートから削除する (外部スクリプトの処理完了前提)"""
+    """K列が「登録済」の行を履歴シートに移動し、元のシートから削除する (外部スクリプトの処理完了前提)"""
     
     try:
-        # 1. データの読み込み (ヘッダーも含むA:K列) - 文字列として取得
-        # ※ 外部スクリプトがまだK列を使用している可能性があるため、ここではA:K列を読み込むが、
-        #    アプリ内ではA:H列のみを扱っている点に注意。
+        # 1. データの読み込み (ヘッダーも含むA:K列) 
+        # ※ 外部スクリプトがK列を更新するため、A:K列を読み込む
         result = sheets_service.spreadsheets().values().get(
             spreadsheetId=SHEET_ID, 
             range=f"{sheet_name}!A:K" 
@@ -263,17 +262,14 @@ def execute_step_5(gc, sheets_service, sheet_name, status_area):
         rows_to_move = []
         rows_to_delete_index = [] 
         
-        # K列のインデックスは10
+        # K列のインデックスは10 (外部連携用)
         col_k_index = 10 
         
         for index, row in enumerate(data_rows):
-            # K列までデータがない場合の対応
             if len(row) < col_k_index + 1:
-                 # データがない行は無視 (または空欄を埋める)
                  row.extend([''] * (col_k_index + 1 - len(row)))
             
             # K列 (宛先登録確認) が「登録済」の場合
-            # ※ 外部スクリプトによってこの列が更新されることを前提
             if len(row) > col_k_index and row[col_k_index].strip() == "登録済":
                 rows_to_move.append(row)
                 rows_to_delete_index.append(index) 
@@ -286,7 +282,6 @@ def execute_step_5(gc, sheets_service, sheet_name, status_area):
         sh = gc.open_by_key(SHEET_ID)
         ws_history = sh.worksheet(HISTORY_SHEET)
         
-        # ヘッダーを調整して最初の8項目のみ使用 (アプリの定義に合わせる)
         if ws_history.row_count < 1 or not ws_history.row_values(1):
              # 履歴シートのヘッダーはA:Kの11項目として保持
              ws_history.insert_row(header, 1)
@@ -422,15 +417,19 @@ with tab1:
     if STATUS_SPRS:
         account_status_data = {}
         
-        # 【修正点】C列(エリア)とD列(店名)を抽出して表示
-        for acc_key, sheet_name in POSTING_ACCOUNT_SHEETS.items():
-            try:
-                # C列 (エリア) と D列 (店名) を取得
-                ws = STATUS_SPRS.worksheet(sheet_name)
-                # C1:D2の範囲を取得 (C1, D1はヘッダー、C2, D2はデータ)
-                values = ws.get_values('C1:D2')
+        try:
+            # 【修正点】一度のAPIコールで全シートのC1:D2の範囲を取得
+            range_list = [f"{sheet_name}!C1:D2" for sheet_name in POSTING_ACCOUNT_SHEETS.values()]
+            
+            # gspreadのbatch_get機能を利用し、全シートのデータを一括取得
+            batch_result = STATUS_SPRS.values_batch_get(range_list)
+            
+            # 結果を処理
+            for acc_key, result in zip(POSTING_ACCOUNT_SHEETS.keys(), batch_result):
+                sheet_name = POSTING_ACCOUNT_SHEETS[acc_key]
+                values = result.get('values', [])
                 
-                # ヘッダー行を除き、最初に見つかったデータ行を使用 (2行目: index 1)
+                # C2, D2のデータを抽出
                 if len(values) > 1 and values[1] and len(values[1]) >= 2:
                     エリア = values[1][0].strip() if values[1][0] else "未設定"
                     店名 = values[1][1].strip() if values[1][1] else "未設定"
@@ -440,11 +439,12 @@ with tab1:
                     
                 account_status_data[f"投稿{acc_key}アカウント"] = {"エリア": エリア, "店名": 店名}
                 
-            except gspread.WorksheetNotFound:
-                account_status_data[f"投稿{acc_key}アカウント"] = {"エリア": "シートなし", "店名": "シートなし"}
-            except Exception as e:
-                account_status_data[f"投稿{acc_key}アカウント"] = {"エリア": "エラー", "店名": "エラー"}
-                st.exception(f"アカウント状況の取得中にエラーが発生しました ({sheet_name}): {e}")
+        except Exception as e:
+            # 接続エラーや一般的なAPIエラーをキャッチ
+            st.error(f"🚨 アカウント状況の一括取得中にエラーが発生しました: {e}")
+            # 全てのシートの状態をエラーとして表示
+            for acc_key in POSTING_ACCOUNT_SHEETS.keys():
+                 account_status_data[f"投稿{acc_key}アカウント"] = {"エリア": "エラー", "店名": "エラー"}
 
         # 表示用のDataFrameを作成
         df_status = pd.DataFrame.from_dict(account_status_data, orient='index')
@@ -595,9 +595,9 @@ with tab1:
                         entry['女の子の名前'], # E列: 女の子の名前
                         entry['タイトル'], # F列: タイトル
                         entry['本文'],     # G列: 本文
-                        common_account     # H列: 担当アカウント (選択されたアカウント)
+                        "未投稿"            # H列: 投稿ステータス (初期値)
                     ]
-                    # I, J, K 列は空欄で追加する (自動化フロー用 - 外部スクリプトが必要とする場合のために空欄を保持)
+                    # I, J, K 列は空欄で追加する (外部スクリプトが必要とする場合のために空欄を保持)
                     row_data.extend(['', '', '']) 
                     final_data.append(row_data)
 
@@ -632,16 +632,13 @@ with tab2:
             reg_values = ws_reg.get_values('A:H') 
             
             if reg_values and len(reg_values) > 1:
-                # ヘッダーは最初のシートからのみ取得
                 if not all_account_data:
                     header = reg_values[0]
                 
-                # データ行のみをリストに追加
                 all_account_data.extend(reg_values[1:])
         
         if all_account_data:
             df_status = pd.DataFrame(all_account_data, columns=header)
-            # A列からH列までを表示
             display_cols = REGISTRATION_HEADERS
             st.dataframe(df_status[display_cols], use_container_width=True, hide_index=True)
         else:
@@ -656,10 +653,9 @@ with tab2:
     st.subheader("✅ 実行済みデータの履歴移動")
     st.error("外部スクリプトなどで処理が完了し、**安全を確認した上で**、このボタンを押してください。投稿A/B/C/DアカウントシートのK列が '登録済' のデータは、元のシートから削除され、履歴シートへ移動します。")
     if st.button("➡️ 実行完了データを履歴へ移動・削除", key='move_to_history_btn', type="primary", use_container_width=True, on_click=run_move_to_history):
-        pass # on_clickで実行される
+        pass
         
     st.subheader("📝 実行ログ (履歴移動)")
-    # 履歴移動のログエリア
     if st.session_state.last_run_status_placeholder is None:
         st.session_state.last_run_status_placeholder = st.empty()
 
@@ -671,7 +667,7 @@ with tab2:
     
     try:
         ws_history = SPRS.worksheet(HISTORY_SHEET)
-        history_values = ws_history.get_all_values() # A:K列を読み込む
+        history_values = ws_history.get_all_values() 
         
         if history_values and len(history_values) > 1:
              df_history = pd.DataFrame(history_values[1:], columns=history_values[0])
@@ -683,8 +679,8 @@ with tab2:
         st.warning(f"履歴シートの読み込みに失敗しました。")
         
     if not df_history.empty:
-        # 表示はアプリのヘッダー定義に合わせるか、A:K列をすべて表示
-        display_cols = [col for col in df_history.columns if col in REGISTRATION_HEADERS or col in ["下書き登録確認", "画像添付確認", "宛先登録確認"]]
+        # 表示はアプリのヘッダー定義（8項目）と外部連携項目（3項目）をすべて表示
+        display_cols = [col for col in df_history.columns]
         
         edited_history_df = st.data_editor(
             df_history[display_cols],
