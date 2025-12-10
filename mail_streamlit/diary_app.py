@@ -10,7 +10,7 @@ import datetime
 # --- Google API連携に必要なライブラリ ---
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+from googleapialient.http import MediaIoBaseUpload
 from googleapiclient.errors import HttpError
 # ----------------------------------------
 
@@ -23,7 +23,7 @@ try:
     # テンプレート用SpreadSheet ID
     USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
 
-    # アカウント状況ブックID
+    # アカウント状況ブックID (参照先)
     ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
 
     SHEET_NAMES = st.secrets["sheet_names"]
@@ -91,7 +91,8 @@ def connect_to_gsheets(sheet_id):
 # 実際の接続を実行
 try:
     SPRS = connect_to_gsheets(SHEET_ID)
-    STATUS_SPRS = connect_to_gsheets(ACCOUNT_STATUS_SHEET_ID) # アカウント状況ブック
+    # ACCOUNT_STATUS_SHEET_ID を使用
+    STATUS_SPRS = connect_to_gsheets(ACCOUNT_STATUS_SHEET_ID) 
 except SystemExit:
     SPRS = None
     STATUS_SPRS = None
@@ -247,7 +248,6 @@ def execute_step_5(gc, sheets_service, sheet_name, status_area):
         all_values = result.get('values', [])
         
         if not all_values or len(all_values) <= 1:
-            # status_area.caption(f"  [{sheet_name}] に処理対象のデータがありません。") # UIから削除
             return True
 
         header = all_values[0]
@@ -270,7 +270,6 @@ def execute_step_5(gc, sheets_service, sheet_name, status_area):
                 rows_to_delete_index.append(index) 
 
         if not rows_to_move:
-            # status_area.caption(f"  [{sheet_name}] に '登録済' の処理済み行が見つかりませんでした。") # UIから削除
             return True
 
         # 3. 履歴シートへの書き込み (A:K列を書き込む)
@@ -281,7 +280,6 @@ def execute_step_5(gc, sheets_service, sheet_name, status_area):
              ws_history.insert_row(header, 1)
 
         ws_history.append_rows(rows_to_move, value_input_option='USER_ENTERED')
-        # status_area.success(f"✅ **{len(rows_to_move)}** 件のデータを '{sheet_name}' から '{HISTORY_SHEET}' に移動しました。") # UIから削除
 
         # 4. 元のシートから行を削除
         rows_to_delete_index.sort(reverse=True)
@@ -293,19 +291,16 @@ def execute_step_5(gc, sheets_service, sheet_name, status_area):
              try:
                  ws_log.delete_rows(row_num)
              except Exception as e:
-                 # status_area.error(f"❌ {sheet_name} から {row_num} 行目の削除に失敗しました: {e}") # UIから削除
                  pass
 
         return True
         
     except Exception as e:
-        # status_area.exception(f"致命的なエラーが発生しました: {e}") # UIから削除
         return False
 
 
 def run_move_to_history():
     """履歴へ移動実行ハンドラ"""
-    # UIから削除されたため、この関数は実行されません
     pass 
 
 
@@ -388,13 +383,14 @@ with tab1:
     st.subheader("🏢 店舗アカウント状況")
     
     if STATUS_SPRS:
-        account_status_data = {}
         
         # 期待されるアカウントリストを定義
         expected_accounts = [f"投稿{acc}アカウント" for acc in POSTING_ACCOUNT_OPTIONS]
-        
+        # 結果を格納するリスト (DataFrame用に整形)
+        data_rows_for_df = []
+
         try:
-            # 【最終修正】取得範囲を A1:C2 に設定 (A列: エリア, C列: 媒体)
+            # 取得範囲を A1:C2 に設定 (A列: エリア, C列: 媒体)
             range_list = [f"{sheet_name}!A1:C2" for sheet_name in POSTING_ACCOUNT_SHEETS.values()]
             
             batch_result = STATUS_SPRS.values_batch_get(range_list)
@@ -402,46 +398,51 @@ with tab1:
             # 結果を処理
             for acc_key, result in zip(POSTING_ACCOUNT_SHEETS.keys(), batch_result):
                 
-                # 辞書またはリストから値を安全に取得
-                if isinstance(result, dict) and 'values' in result:
-                    values = result['values']
-                elif isinstance(result, list):
-                    values = result
-                else:
-                    values = []
+                # アカウント名 (インデックス名)
+                account_key = f"投稿{acc_key}アカウント"
+
+                # gspreadの結果から値を安全に取得
+                values = result.get('values', []) if isinstance(result, dict) else (result if isinstance(result, list) else [])
                 
-                # 2行目のデータが存在するかをチェック
+                エリア = "データなし"
+                媒体 = "データなし"
+                
+                # 2行目のデータが存在するかをチェック (データ行はインデックス1)
                 if len(values) > 1:
-                    # 2行目 (インデックス 1) のデータを取得
                     row_data = values[1] 
                     
                     # A列 (エリア, インデックス 0)
                     エリア = row_data[0].strip() if len(row_data) > 0 and row_data[0] else "未設定"
                     # C列 (媒体, インデックス 2)
                     媒体 = row_data[2].strip() if len(row_data) > 2 and row_data[2] else "未設定"
-                else:
-                    # 2行目がない場合
-                    エリア = "データなし"
-                    媒体 = "データなし"
-                    
-                # アカウント名をキーとしてデータを格納
-                account_key = f"投稿{acc_key}アカウント"
-                account_status_data[account_key] = {"エリア": エリア, "媒体": 媒体}
+                
+                # DataFrame用のリストに追加
+                data_rows_for_df.append({
+                    "アカウント": account_key,
+                    "エリア": エリア,
+                    "媒体": 媒体
+                })
                 
         except Exception as e:
             st.error(f"🚨 アカウント状況の一括取得中にエラーが発生しました: {e}")
             # エラー発生時は全てのエントリーをエラー表示
-            for acc_key in POSTING_ACCOUNT_SHEETS.keys():
-                 account_status_data[f"投稿{acc_key}アカウント"] = {"エリア": "エラー", "媒体": "エラー"}
+            for acc_key in POSTING_ACCOUNT_OPTIONS:
+                 data_rows_for_df.append({
+                    "アカウント": f"投稿{acc_key}アカウント",
+                    "エリア": "エラー",
+                    "媒体": "エラー"
+                })
 
-        # 表示用のDataFrameを作成し、期待されるインデックスに揃える
-        df_status = pd.DataFrame.from_dict(account_status_data, orient='index')
-        df_status.index.name = "アカウント"
-        
-        # 期待されるインデックスに揃える
-        df_status = df_status.reindex(expected_accounts, fill_value={"エリア": "データなし", "媒体": "データなし"})
-        
-        st.dataframe(df_status, use_container_width=True)
+        # 表示用のDataFrameを作成
+        if data_rows_for_df:
+            df_status = pd.DataFrame(data_rows_for_df).set_index("アカウント")
+            
+            # 期待されるインデックスに揃え、欠けているアカウントも表示
+            df_status = df_status.reindex(expected_accounts, fill_value="データなし")
+            
+            st.dataframe(df_status, use_container_width=True)
+        else:
+             st.info("アカウント状況データを取得できませんでした。")
     else:
         st.error("🚨 アカウント状況のSpreadsheetに接続できませんでした。")
 
@@ -640,8 +641,6 @@ with tab2:
         st.info(f"シートの読み込みエラー: {e}")
 
     st.markdown("---")
-
-    # 【削除済み】実行済みデータの履歴移動セクションは削除
 
     # --- A. 履歴データの検索と修正 ---
     st.subheader("🔍 投稿データの修正 (履歴)")
