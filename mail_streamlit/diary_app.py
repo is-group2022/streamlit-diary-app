@@ -6,13 +6,8 @@ import time
 import base64
 import re
 import datetime
-from email.message import EmailMessage
-from email.mime.image import MIMEImage
-from email.mime.multipart import MIMEMultipart
-from email.parser import BytesParser
-from email.policy import default
 
-# --- Drive/Sheets/Gmail API 連携に必要なライブラリ ---
+# --- Google API連携に必要なライブラリ ---
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
@@ -21,29 +16,34 @@ from googleapiclient.errors import HttpError
 
 # --- 1. 定数と初期設定 ---
 try:
-    # 接続に必要な情報は st.secrets から取得
-    SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"] # <-- 日記登録、履歴などで使用するメインのID
+    # メインのSpreadsheet ID (データ転記先、履歴用)
+    SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"] 
     DRIVE_FOLDER_ID = st.secrets["google_resources"]["drive_folder_id"] 
     
     # テンプレート用SpreadSheet ID
     USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
 
+    # 【新規】アカウント状況ブックID
+    ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
+
     SHEET_NAMES = st.secrets["sheet_names"]
     
+    # 投稿アカウント別シート名 (転記先、Tab 2表示対象)
+    POSTING_ACCOUNT_SHEETS = {
+        "A": "投稿Aアカウント",
+        "B": "投稿Bアカウント",
+        "C": "投稿Cアカウント",
+        "D": "投稿Dアカウント"
+    }
+    
+    # 旧登録シートと履歴シート (Step 5で利用するため保持)
     REGISTRATION_SHEET = SHEET_NAMES["registration_sheet"]
-    CONTACT_SHEET = SHEET_NAMES["contact_sheet"]
-    USABLE_DIARY_SHEET = SHEET_NAMES["usable_diary_sheet"]
     HISTORY_SHEET = SHEET_NAMES["history_sheet"]
+    USABLE_DIARY_SHEET = SHEET_NAMES["usable_diary_sheet"]
     
     # プルダウンの選択肢
     MEDIA_OPTIONS = ["駅ちか", "デリじゃ"]
-    # 担当アカウントとメールアドレスのマッピング (Step 2, 3で使用) - Step 2/3/4削除により原則不要だが、定数として保持
-    ACCOUNT_MAPPING = {
-        "A": "main.ekichika.a@gmail.com", 
-        "B": "main.ekichika.b@gmail.com", 
-        "SUB": "sub.media@wwwsigroupcom.com" 
-    }
-    MAX_TIME_DIFF_MINUTES = 15 # 画像検索の許容時刻差 (±15分)
+    POSTING_ACCOUNT_OPTIONS = ["A", "B", "C", "D"] # 新規
     
     # APIスコープをSheetsとDriveとGmailに設定
     SCOPES = [
@@ -62,38 +62,40 @@ REGISTRATION_HEADERS = [
     "エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文", "担当アカウント", 
     "下書き登録確認", "画像添付確認", "宛先登録確認" 
 ]
-# 【変更点】入力に必要なヘッダーから "媒体" を削除
+# 【変更なし】入力に必要なヘッダー
 INPUT_HEADERS = ["投稿時間", "女の子の名前", "タイトル", "本文"]
 
 # --- カラムインデックス (0から開始) ---
-COL_INDEX_LOCATION = 0     # A列: エリア
-COL_INDEX_STORE = 1        # B列: 店名
-COL_INDEX_MEDIA = 2        # C列: 媒体
-COL_INDEX_TIME = 3         # D列: 投稿時間
-COL_INDEX_NAME = 4         # E列: 女の子の名前
-COL_INDEX_TITLE = 5        # F列: タイトル
-COL_INDEX_BODY = 6         # G列: 本文
-COL_INDEX_HANDLER = 7      # H列: 担当アカウント
-
+COL_INDEX_AREA = 0     # A列: エリア
+COL_INDEX_STORE = 1    # B列: 店名
+COL_INDEX_MEDIA = 2    # C列: 媒体
+COL_INDEX_TIME = 3     # D列: 投稿時間
+COL_INDEX_NAME = 4     # E列: 女の子の名前
+COL_INDEX_TITLE = 5    # F列: タイトル
+COL_INDEX_BODY = 6     # G列: 本文
+COL_INDEX_HANDLER = 7  # H列: 担当アカウント
+COL_INDEX_RECIPIENT_STATUS = REGISTRATION_HEADERS.index("宛先登録確認") # 10列目
 
 # --- 2. Google API連携関数 ---
 
 @st.cache_resource(ttl=3600)
-def connect_to_gsheets():
-    """GSpreadでGoogle Sheetsに接続し、クライアントを返す (メインID用)"""
+def connect_to_gsheets(sheet_id):
+    """GSpreadでGoogle Sheetsに接続し、クライアントを返す (汎用)"""
     try:
         client = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
-        spreadsheet = client.open_by_key(SHEET_ID)
+        spreadsheet = client.open_by_key(sheet_id)
         return spreadsheet
     except Exception as e:
-        st.error(f"❌ Google Sheets への接続に失敗しました: {e}")
+        st.error(f"❌ Google Sheets ({sheet_id}) への接続に失敗しました: {e}")
         st.stop()
         
 # 実際の接続を実行
 try:
-    SPRS = connect_to_gsheets()
+    SPRS = connect_to_gsheets(SHEET_ID)
+    STATUS_SPRS = connect_to_gsheets(ACCOUNT_STATUS_SHEET_ID) # アカウント状況ブック
 except SystemExit:
     SPRS = None
+    STATUS_SPRS = None
 
 @st.cache_resource(ttl=3600)
 def connect_to_api_services():
@@ -103,7 +105,7 @@ def connect_to_api_services():
         creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
         sheets_service = build('sheets', 'v4', credentials=creds)
         drive_service = build('drive', 'v3', credentials=creds)
-        # Tab 2 (Gmail関連) 削除に伴い、Gmailサービスの利用頻度は低下
+        # Gmailサービスは機能削除に伴い使用頻度低下
         gmail_service = build('gmail', 'v1', credentials=creds) 
         
         return sheets_service, drive_service, gmail_service
@@ -234,23 +236,21 @@ def drive_upload_wrapper(uploaded_file, entry, area_name, store_name_base, drive
     return upload_file_to_drive(uploaded_file, new_filename, store_folder_id, drive_service)
 
 
-# --- 3. 実行ロジック (Tab 2削除により Step 5のみ保持) ---
+# --- 3. 実行ロジック (Tab 2: 履歴移動) ---
 
-def execute_step_5(gc, sheets_service, status_area):
-    """Step 5: K列が「登録済」の行を履歴シートに移動し、元のシートから削除する"""
-    
-    status_area.info("🔄 実行済みデータ**を履歴シートへ移動中...")
+def execute_step_5(gc, sheets_service, sheet_name, status_area):
+    """K列が「登録済」の行を履歴シートに移動し、元のシートから削除する"""
     
     try:
         # 1. データの読み込み (ヘッダーも含むA:K列) - 文字列として取得
         result = sheets_service.spreadsheets().values().get(
             spreadsheetId=SHEET_ID, 
-            range=f"{REGISTRATION_SHEET}!A:K"
+            range=f"{sheet_name}!A:K" # 対象シートを指定
         ).execute()
         all_values = result.get('values', [])
         
         if not all_values or len(all_values) <= 1:
-            status_area.warning("日記登録用シートに処理対象のデータがありません。")
+            status_area.caption(f"  [{sheet_name}] に処理対象のデータがありません。")
             return True
 
         header = all_values[0]
@@ -273,7 +273,7 @@ def execute_step_5(gc, sheets_service, status_area):
                 rows_to_delete_index.append(index) # ヘッダーを含まないインデックス
 
         if not rows_to_move:
-            status_area.warning("K列が '登録済' の処理済み行が見つかりませんでした。")
+            status_area.caption(f"  [{sheet_name}] に '登録済' の処理済み行が見つかりませんでした。")
             return True
 
         # 3. 履歴シートへの書き込み
@@ -285,12 +285,12 @@ def execute_step_5(gc, sheets_service, status_area):
              ws_history.insert_row(header, 1)
 
         ws_history.append_rows(rows_to_move, value_input_option='USER_ENTERED')
-        status_area.success(f"✅ **{len(rows_to_move)}** 件のデータを '{HISTORY_SHEET}' に書き込みました。")
+        status_area.success(f"✅ **{len(rows_to_move)}** 件のデータを '{sheet_name}' から '{HISTORY_SHEET}' に移動しました。")
 
         # 4. 元のシートから行を削除 (下から上へ削除)
         rows_to_delete_index.sort(reverse=True)
         
-        ws_log = sh.worksheet(REGISTRATION_SHEET)
+        ws_log = sh.worksheet(sheet_name)
         
         # gspread の delete_rows は行番号 (1から開始) を指定。data_rowsのindex + 2
         for index_in_data_rows in rows_to_delete_index:
@@ -298,9 +298,8 @@ def execute_step_5(gc, sheets_service, status_area):
              try:
                  ws_log.delete_rows(row_num)
              except Exception as e:
-                 status_area.error(f"❌ {REGISTRATION_SHEET} から {row_num} 行目の削除に失敗しました: {e}")
+                 status_area.error(f"❌ {sheet_name} から {row_num} 行目の削除に失敗しました: {e}")
 
-        status_area.success(f"🎉 実行済みデータが履歴シートへ移動・削除されました。（**{len(rows_to_move)}** 行）")
         return True
         
     except Exception as e:
@@ -311,19 +310,28 @@ def execute_step_5(gc, sheets_service, status_area):
 def run_move_to_history():
     """履歴へ移動実行ハンドラ"""
     
-    # ログ表示エリアの初期化
     if 'last_run_status_placeholder' not in st.session_state:
         st.session_state.last_run_status_placeholder = st.empty()
     
     status_area_placeholder = st.session_state.last_run_status_placeholder
     status_area = status_area_placeholder.container()
     
-    # 実行前に最終警告を表示
-    status_area.warning("⚠️ **履歴移動処理を開始します。** (K列が'登録済'のデータが対象です)")
+    status_area.warning("⚠️ **履歴移動処理を開始します。** (投稿A, B, C, DアカウントシートのK列が'登録済'のデータが対象です)")
     
-    execute_step_5(SPRS, SHEETS_SERVICE, status_area)
+    success_count = 0
     
+    for acc in POSTING_ACCOUNT_OPTIONS:
+        sheet_to_clean = POSTING_ACCOUNT_SHEETS[acc]
+        status_area.info(f"🔄 **{sheet_to_clean}** の実行済みデータを確認・移動中...")
+        if execute_step_5(SPRS, SHEETS_SERVICE, sheet_to_clean, status_area):
+            success_count += 1
+            
     status_area.markdown("---")
+    if success_count == len(POSTING_ACCOUNT_OPTIONS):
+        status_area.success(f"🎉 全てのシート ({success_count}件) の履歴移動処理が完了しました。")
+    else:
+        status_area.warning("処理が完了しなかったシートがあります。ログを確認してください。")
+        
     status_area.info(f"最終実行時刻: {time.strftime('%H:%M:%S')}")
 
 
@@ -341,13 +349,6 @@ st.set_page_config(
 st.markdown("""
 <style>
 /* メインタイトルに影と色を適用 */
-.stApp > header {
-    background-color: transparent;
-}
-.st-emotion-cache-12fm5qf {
-    padding-top: 1rem;
-}
-/* ヘッダーのフォントを装飾 */
 h1 {
     color: #4CAF50; 
     text-shadow: 2px 2px 4px #aaa;
@@ -376,15 +377,17 @@ st.title("✨ 写メ日記投稿管理アプリ - Daily Posting Manager")
 
 # --- セッションステートの初期化 ---
 if 'diary_entries' not in st.session_state:
-    # 必須入力ヘッダーのみを使用
     initial_entry = {header: "" for header in INPUT_HEADERS}
     initial_entry['画像ファイル'] = None 
-    
     st.session_state.diary_entries = [initial_entry.copy() for _ in range(40)]
 
-# 【変更なし】global_media は保持
+# 【変更なし】媒体の共通設定
 if 'global_media' not in st.session_state:
     st.session_state.global_media = MEDIA_OPTIONS[0]
+
+# 【新規】投稿アカウントの共通設定
+if 'global_posting_account' not in st.session_state:
+    st.session_state.global_posting_account = POSTING_ACCOUNT_OPTIONS[0]
 
 # 【変更なし】エリアと店名の共通入力用ステート
 if 'global_area' not in st.session_state:
@@ -392,15 +395,15 @@ if 'global_area' not in st.session_state:
 if 'global_store' not in st.session_state:
     st.session_state.global_store = ""
     
-# 【変更なし】ログ表示のプレースホルダーを初期化 (Step 5用)
+# 【変更なし】ログ表示のプレースホルダーを初期化
 if 'last_run_status_placeholder' not in st.session_state:
     st.session_state.last_run_status_placeholder = None 
 
 
-# 【変更なし】タブの定義 (Tab 2削除により Tab 3 -> 2, Tab 4 -> 3 に繰り上げ)
+# 【変更なし】タブの定義
 tab1, tab2, tab3 = st.tabs([
     "📝 ① データ登録・画像アップロード", 
-    "📂 ② 自動投稿データの検索・管理", 
+    "📂 ② 投稿データ管理・履歴移動", 
     "📚 ③ 使用可能日記全文表示" 
 ])
 
@@ -411,30 +414,80 @@ tab1, tab2, tab3 = st.tabs([
 with tab1:
     st.header("1️⃣ データ準備・入力")
     
-    st.subheader("📖 日記使用可能文（コピペ用）")
-    st.info("💡 **コピペ補助**：全画面でテンプレートを表示・コピペする場合は、**「📚 ③ 使用可能日記全文表示」タブ**をご利用ください。")
+    # --- 新規セクション: 店舗アカウント状況 ---
+    st.subheader("🏢 店舗アカウント状況")
+    
+    if STATUS_SPRS:
+        account_status_data = {}
+        for acc_key, sheet_name in POSTING_ACCOUNT_SHEETS.items():
+            try:
+                ws = STATUS_SPRS.worksheet(sheet_name)
+                # C列 (エリア) と D列 (店名) を取得
+                values = ws.get_values(f'C:D')
+                
+                # ヘッダー行を除き、最初に見つかったデータ行を使用
+                if len(values) > 1 and values[1] and len(values[1]) >= 2:
+                    エリア = values[1][0].strip() if values[1][0] else "未設定"
+                    店名 = values[1][1].strip() if values[1][1] else "未設定"
+                else:
+                    エリア = "データなし"
+                    店名 = "データなし"
+                    
+                account_status_data[f"投稿{acc_key}アカウント"] = {"エリア": エリア, "店名": 店名}
+                
+            except gspread.WorksheetNotFound:
+                account_status_data[f"投稿{acc_key}アカウント"] = {"エリア": "シートなし", "店名": "シートなし"}
+            except Exception as e:
+                account_status_data[f"投稿{acc_key}アカウント"] = {"エリア": "エラー", "店名": "エラー"}
+                st.exception(f"アカウント状況の取得中にエラーが発生しました ({sheet_name}): {e}")
+
+        # 表示用のDataFrameを作成
+        df_status = pd.DataFrame.from_dict(account_status_data, orient='index')
+        df_status.index.name = "アカウント"
+        st.dataframe(df_status, use_container_width=True)
+    else:
+        st.error("🚨 アカウント状況のSpreadsheetに接続できませんでした。")
+
     st.markdown("---")
     
-    # --- B. 40件の日記データ入力 (常時展開・本文枠大) ---
+    # --- 登録用データ入力 ---
     st.subheader("2️⃣ 登録用データ入力と画像アップロード (最大40件)")
 
-    # **媒体、エリア、店名の全体設定（全体適用）**
+    # **媒体、エリア、店名、投稿アカウントの全体設定（全体適用）**
     st.markdown("#### ⚙️ 全体設定 (40件すべてに適用されます)")
-    cols_global = st.columns([1, 2, 2])
+    cols_global = st.columns([1, 1, 2, 2])
+    
+    # 【新規】投稿アカウント (プルダウン)
+    st.session_state.global_posting_account = cols_global[0].selectbox(
+        "👤 投稿アカウント", 
+        POSTING_ACCOUNT_OPTIONS, 
+        key='global_account_select'
+    )
     
     # 媒体 (プルダウン)
-    st.session_state.global_media = cols_global[0].selectbox("🌐 媒体", MEDIA_OPTIONS, key='global_media_select')
+    st.session_state.global_media = cols_global[1].selectbox(
+        "🌐 媒体", 
+        MEDIA_OPTIONS, 
+        key='global_media_select'
+    )
     
     # エリア、店名を共通入力にする (テキスト入力)
-    st.session_state.global_area = cols_global[1].text_input("📍 エリア", value=st.session_state.global_area, key='global_area_input')
-    st.session_state.global_store = cols_global[2].text_input("🏢 店名", value=st.session_state.global_store, key='global_store_input')
+    st.session_state.global_area = cols_global[2].text_input(
+        "📍 エリア", 
+        value=st.session_state.global_area, 
+        key='global_area_input'
+    )
+    st.session_state.global_store = cols_global[3].text_input(
+        "🏢 店名", 
+        value=st.session_state.global_store, 
+        key='global_store_input'
+    )
     
     st.warning("⚠️ **重要**：画像ファイル名は**投稿時間(hhmm)**と**女の子の名前**から自動生成されます。必ず入力してください。")
 
     with st.form("diary_registration_form"):
         
-        # ヘッダー行 (UIに表示される項目のみ)
-        # 【修正箇所】「媒体」を削除し、投稿時間、名前、タイトル、本文、画像の順にする
+        # ヘッダー行 
         col_header = st.columns([1, 1, 2, 3, 2]) 
         col_header[0].markdown("⏰ **投稿時間**")
         col_header[1].markdown("👧 **女の子名**")
@@ -449,7 +502,6 @@ with tab1:
             entry = st.session_state.diary_entries[i]
             
             # 1行を構成する列を定義
-            # 【修正箇所】「媒体」の列を削除
             cols = st.columns([1, 1, 2, 3, 2]) 
             
             # --- テキスト入力 ---
@@ -479,10 +531,11 @@ with tab1:
         submitted = st.form_submit_button("🔥 登録データと画像を Google Sheets/Drive に格納して実行準備完了", type="primary")
 
         if submitted:
-            # 共通入力のチェック
+            # 共通入力の取得
+            common_account = st.session_state.global_posting_account
             common_area = st.session_state.global_area.strip()
             common_store = st.session_state.global_store.strip()
-            common_media = st.session_state.global_media # 共通媒体
+            common_media = st.session_state.global_media
             
             if not common_area or not common_store:
                 st.error("❌ エリア名と店名は必ず入力してください。")
@@ -502,13 +555,12 @@ with tab1:
                 st.error("入力データがありません。")
                 st.stop()
             
-            # 1. Drive アップロード (動的フォルダ作成を実行)
+            # 1. Drive アップロード (画像は全てDriveへ)
             st.info(f"入力件数: {len(valid_entries_and_files)}件の登録処理を開始します。")
             uploaded_count = 0
             
             for i, entry in enumerate(valid_entries_and_files):
                 if entry['画像ファイル']:
-                    # drive_upload_wrapper に共通のエリアと店名を渡す
                     file_id = drive_upload_wrapper(
                         entry['画像ファイル'], 
                         entry, 
@@ -523,13 +575,12 @@ with tab1:
             
             st.success(f"✅ **{uploaded_count}枚**の画像を Drive へ格納しました。")
 
-            # 2. シート書き込み
+            # 2. シート書き込み (選択されたアカウントのシートへ)
             try:
-                ws = SPRS.worksheet(REGISTRATION_SHEET)
+                target_sheet_name = POSTING_ACCOUNT_SHEETS[common_account]
+                ws = SPRS.worksheet(target_sheet_name)
                 
                 final_data = []
-                # 担当アカウントは一旦 A で固定としておく (外部の自動化スクリプトとの連携のため)
-                FIXED_HANDLER_ACCOUNT = "A" 
                 
                 for entry in valid_entries_and_files:
                     row_data = [
@@ -540,7 +591,7 @@ with tab1:
                         entry['女の子の名前'], # E列: 女の子の名前
                         entry['タイトル'], # F列: タイトル
                         entry['本文'],     # G列: 本文
-                        FIXED_HANDLER_ACCOUNT # H列: 担当アカウント (固定)
+                        common_account     # H列: 担当アカウント (選択されたアカウント)
                     ]
                     # I, J, K 列は空欄で追加する (自動化フロー用)
                     row_data.extend(['', '', '']) 
@@ -549,7 +600,7 @@ with tab1:
                 ws.append_rows(final_data, value_input_option='USER_ENTERED')
                 
                 st.balloons()
-                st.success(f"🎉 **{len(valid_entries_and_files)}件**のデータ登録が完了しました。")
+                st.success(f"🎉 **{len(valid_entries_and_files)}件**のデータ登録が完了しました。転記先シート: **{target_sheet_name}**")
                 st.info("次の作業は Tab ② で実行してください。")
             
             except Exception as e:
@@ -561,22 +612,34 @@ with tab1:
 # =========================================================
 
 with tab2:
-    st.header("2️⃣ 自動投稿データの検索・管理")
+    st.header("2️⃣ 投稿データ管理・履歴移動")
     
-    st.subheader("📊 現在の登録データと実行状況")
+    st.subheader("📊 現在の登録データと実行状況 (全アカウント統合)")
+    
+    all_account_data = []
     
     try:
-        # get_all_values() で全データを文字列として取得 (hhmmの0落ち対策)
-        ws_reg = SPRS.worksheet(REGISTRATION_SHEET)
-        reg_values = ws_reg.get_all_values()
+        # 全アカウントシートのデータを結合して表示
+        for acc in POSTING_ACCOUNT_OPTIONS:
+            sheet_name = POSTING_ACCOUNT_SHEETS[acc]
+            ws_reg = SPRS.worksheet(sheet_name)
+            reg_values = ws_reg.get_all_values()
+            
+            if reg_values and len(reg_values) > 1:
+                # ヘッダーは最初のシートからのみ取得
+                if not all_account_data:
+                    header = reg_values[0]
+                
+                # データ行のみをリストに追加
+                all_account_data.extend(reg_values[1:])
         
-        if reg_values and len(reg_values) > 1:
-            df_status = pd.DataFrame(reg_values[1:], columns=reg_values[0])
+        if all_account_data:
+            df_status = pd.DataFrame(all_account_data, columns=header)
             # A列からK列までを表示
             display_cols = REGISTRATION_HEADERS
             st.dataframe(df_status[display_cols], use_container_width=True, hide_index=True)
         else:
-            st.info("「日記登録用」シートにデータがありません。")
+            st.info("投稿アカウントシートに処理待ちのデータがありません。")
 
     except Exception as e:
         st.info(f"シートの読み込みエラー: {e}")
@@ -585,7 +648,7 @@ with tab2:
 
     # --- 実行済みデータの履歴移動 ---
     st.subheader("✅ 実行済みデータの履歴移動")
-    st.error("外部スクリプトなどで処理が完了し、**安全を確認した上で**、このボタンを押してください。K列が '登録済' のデータはシートから削除され、履歴へ移動します。")
+    st.error("外部スクリプトなどで処理が完了し、**安全を確認した上で**、このボタンを押してください。投稿A/B/C/DアカウントシートのK列が '登録済' のデータは、元のシートから削除され、履歴シートへ移動します。")
     if st.button("➡️ 実行完了データを履歴へ移動・削除", key='move_to_history_btn', type="primary", use_container_width=True, on_click=run_move_to_history):
         pass # on_clickで実行される
         
@@ -661,8 +724,7 @@ with tab3:
 
     try:
         # テンプレート用のSpreadsheet IDで接続し、全データを文字列として取得
-        client = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
-        template_spreadsheet = client.open_by_key(USABLE_DIARY_SHEET_ID)
+        template_spreadsheet = connect_to_gsheets(USABLE_DIARY_SHEET_ID)
         ws_templates = template_spreadsheet.worksheet(USABLE_DIARY_SHEET)
         
         all_values = ws_templates.get_all_values()
@@ -679,14 +741,14 @@ with tab3:
             # フィルターUI
             col_type, col_kind, col_spacer = st.columns([1, 1, 3]) 
             
-            # シートに「日記種類」列が存在するか確認してからselectboxのオプションを作成
+            # 日記種類
             type_options = ["すべて"]
             if '日記種類' in df_templates.columns:
                 type_options.extend(df_templates['日記種類'].unique().tolist())
             with col_type:
                 selected_type = st.selectbox("日記種類", type_options, key='t4_type') 
             
-            # シートに「タイプ種類」列が存在するか確認してからselectboxのオプションを作成
+            # タイプ種類
             kind_options = ["すべて"]
             if 'タイプ種類' in df_templates.columns:
                 kind_options.extend(df_templates['タイプ種類'].unique().tolist())
@@ -704,7 +766,7 @@ with tab3:
             st.markdown("---")
             st.info("✅ **全画面表示モード**：下の表から必要な行をコピーし、Tab ① の入力フォームに貼り付けてください。")
 
-            # 必要な列のみを選択して表示（列がない場合はエラーになるため事前にチェック）
+            # 必要な列のみを選択して表示
             display_cols = ['タイトル', '本文', '日記種類', 'タイプ種類']
             valid_display_cols = [col for col in display_cols if col in filtered_df.columns]
             
