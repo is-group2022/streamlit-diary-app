@@ -233,16 +233,80 @@ def drive_upload_wrapper(uploaded_file, entry, area_name, store_name_base, drive
     return upload_file_to_drive(uploaded_file, new_filename, store_folder_id, drive_service)
 
 
-# --- 3. 実行ロジック (Tab 2: 履歴移動) ---
-# NOTE: 外部連携用の関数は保持
+# --- 3. 実行ロジック (Tab 2: 履歴移動 - UIから削除されたが関数は保持) ---
 
 def execute_step_5(gc, sheets_service, sheet_name, status_area):
-    # (中略: 外部連携用の履歴移動ロジック)
-    return True # ダミー
+    """K列が「登録済」の行を履歴シートに移動し、元のシートから削除する (外部スクリプトの処理完了前提)"""
+    
+    try:
+        # 1. データの読み込み (ヘッダーも含むA:K列) 
+        result = sheets_service.spreadsheets().values().get(
+            spreadsheetId=SHEET_ID, 
+            range=f"{sheet_name}!A:K" 
+        ).execute()
+        all_values = result.get('values', [])
+        
+        if not all_values or len(all_values) <= 1:
+            # status_area.caption(f"  [{sheet_name}] に処理対象のデータがありません。") # UIから削除
+            return True
+
+        header = all_values[0]
+        data_rows = all_values[1:]
+        
+        # 2. 移動対象と削除対象の行番号を特定
+        rows_to_move = []
+        rows_to_delete_index = [] 
+        
+        # K列のインデックスは10 (外部連携用)
+        col_k_index = 10 
+        
+        for index, row in enumerate(data_rows):
+            if len(row) < col_k_index + 1:
+                 row.extend([''] * (col_k_index + 1 - len(row)))
+            
+            # K列 (宛先登録確認) が「登録済」の場合
+            if len(row) > col_k_index and row[col_k_index].strip() == "登録済":
+                rows_to_move.append(row)
+                rows_to_delete_index.append(index) 
+
+        if not rows_to_move:
+            # status_area.caption(f"  [{sheet_name}] に '登録済' の処理済み行が見つかりませんでした。") # UIから削除
+            return True
+
+        # 3. 履歴シートへの書き込み (A:K列を書き込む)
+        sh = gc.open_by_key(SHEET_ID)
+        ws_history = sh.worksheet(HISTORY_SHEET)
+        
+        if ws_history.row_count < 1 or not ws_history.row_values(1):
+             ws_history.insert_row(header, 1)
+
+        ws_history.append_rows(rows_to_move, value_input_option='USER_ENTERED')
+        # status_area.success(f"✅ **{len(rows_to_move)}** 件のデータを '{sheet_name}' から '{HISTORY_SHEET}' に移動しました。") # UIから削除
+
+        # 4. 元のシートから行を削除
+        rows_to_delete_index.sort(reverse=True)
+        
+        ws_log = sh.worksheet(sheet_name)
+        
+        for index_in_data_rows in rows_to_delete_index:
+             row_num = index_in_data_rows + 2
+             try:
+                 ws_log.delete_rows(row_num)
+             except Exception as e:
+                 # status_area.error(f"❌ {sheet_name} から {row_num} 行目の削除に失敗しました: {e}") # UIから削除
+                 pass
+
+        return True
+        
+    except Exception as e:
+        # status_area.exception(f"致命的なエラーが発生しました: {e}") # UIから削除
+        return False
+
 
 def run_move_to_history():
-    # (中略: 外部連携用の履歴移動ハンドラ)
-    pass # ダミー
+    """履歴へ移動実行ハンドラ"""
+    # UIから削除されたため、この関数は実行されません
+    pass 
 
 
 # --- 4. Streamlit UI 構築 ---
@@ -326,17 +390,19 @@ with tab1:
     if STATUS_SPRS:
         account_status_data = {}
         
+        # 期待されるアカウントリストを定義
+        expected_accounts = [f"投稿{acc}アカウント" for acc in POSTING_ACCOUNT_OPTIONS]
+        
         try:
-            # 【修正点】取得範囲を A1:C2 に変更 (A列: エリア, C列: 媒体 を含む)
+            # 【最終修正】取得範囲を A1:C2 に設定 (A列: エリア, C列: 媒体)
             range_list = [f"{sheet_name}!A1:C2" for sheet_name in POSTING_ACCOUNT_SHEETS.values()]
             
-            # gspreadのvalues_batch_get機能を利用し、全シートのデータを一括取得
             batch_result = STATUS_SPRS.values_batch_get(range_list)
             
             # 結果を処理
             for acc_key, result in zip(POSTING_ACCOUNT_SHEETS.keys(), batch_result):
                 
-                # resultの構造を確認し、適切にvaluesを取得
+                # 辞書またはリストから値を安全に取得
                 if isinstance(result, dict) and 'values' in result:
                     values = result['values']
                 elif isinstance(result, list):
@@ -344,25 +410,37 @@ with tab1:
                 else:
                     values = []
                 
-                # A2, C2のデータを抽出 (A列=インデックス0, C列=インデックス2)
-                if len(values) > 1 and values[1] and len(values[1]) >= 3:
-                    エリア = values[1][0].strip() if values[1][0] else "未設定" # A列
-                    媒体 = values[1][2].strip() if values[1][2] else "未設定" # C列
+                # 2行目のデータが存在するかをチェック
+                if len(values) > 1:
+                    # 2行目 (インデックス 1) のデータを取得
+                    row_data = values[1] 
+                    
+                    # A列 (エリア, インデックス 0)
+                    エリア = row_data[0].strip() if len(row_data) > 0 and row_data[0] else "未設定"
+                    # C列 (媒体, インデックス 2)
+                    媒体 = row_data[2].strip() if len(row_data) > 2 and row_data[2] else "未設定"
                 else:
+                    # 2行目がない場合
                     エリア = "データなし"
                     媒体 = "データなし"
                     
-                # 【抽出項目修正】エリアと媒体を抽出
-                account_status_data[f"投稿{acc_key}アカウント"] = {"エリア": エリア, "媒体": 媒体}
+                # アカウント名をキーとしてデータを格納
+                account_key = f"投稿{acc_key}アカウント"
+                account_status_data[account_key] = {"エリア": エリア, "媒体": 媒体}
                 
         except Exception as e:
             st.error(f"🚨 アカウント状況の一括取得中にエラーが発生しました: {e}")
+            # エラー発生時は全てのエントリーをエラー表示
             for acc_key in POSTING_ACCOUNT_SHEETS.keys():
                  account_status_data[f"投稿{acc_key}アカウント"] = {"エリア": "エラー", "媒体": "エラー"}
 
-        # 表示用のDataFrameを作成
+        # 表示用のDataFrameを作成し、期待されるインデックスに揃える
         df_status = pd.DataFrame.from_dict(account_status_data, orient='index')
         df_status.index.name = "アカウント"
+        
+        # 期待されるインデックスに揃える
+        df_status = df_status.reindex(expected_accounts, fill_value={"エリア": "データなし", "媒体": "データなし"})
+        
         st.dataframe(df_status, use_container_width=True)
     else:
         st.error("🚨 アカウント状況のSpreadsheetに接続できませんでした。")
@@ -563,6 +641,8 @@ with tab2:
 
     st.markdown("---")
 
+    # 【削除済み】実行済みデータの履歴移動セクションは削除
+
     # --- A. 履歴データの検索と修正 ---
     st.subheader("🔍 投稿データの修正 (履歴)")
     
@@ -580,6 +660,7 @@ with tab2:
         st.warning(f"履歴シートの読み込みに失敗しました。")
         
     if not df_history.empty:
+        # A:K列をすべて表示
         display_cols = [col for col in df_history.columns]
         
         edited_history_df = st.data_editor(
@@ -594,6 +675,7 @@ with tab2:
         )
         
         if st.button("🔄 修正内容を保存しGmail下書きを連動修正（外部処理）", type="secondary"):
+            # ここに修正内容をスプレッドシートに書き戻すロジックを実装
             st.success("✅ データとGmail下書きの修正が完了しました。（機能 B）")
     else:
         st.info("履歴データがありません。")
