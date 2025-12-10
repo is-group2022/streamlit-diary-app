@@ -10,7 +10,8 @@ import datetime
 # --- Google API連携に必要なライブラリ ---
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
-from googleapialient.http import MediaIoBaseUpload
+# 【修正箇所】googleapialient を googleapiclient に修正
+from googleapiclient.http import MediaIoBaseUpload  
 from googleapiclient.errors import HttpError
 # ----------------------------------------
 
