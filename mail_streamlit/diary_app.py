@@ -388,22 +388,27 @@ with tab1:
         expected_accounts = [f"投稿{acc}アカウント" for acc in POSTING_ACCOUNT_OPTIONS]
         # 結果を格納するリスト (DataFrame用に整形)
         data_rows_for_df = []
+        
+        # --- 🚨 デバッグ情報格納用リスト 🚨 ---
+        debug_raw_data = {}
 
         try:
-            # 【A1:C1取得ロジック】A1=エリア, C1=媒体を想定
-            range_list = [f"{sheet_name}!A1:C1" for sheet_name in POSTING_ACCOUNT_SHEETS.values()]
+            # 【A1:C1取得ロジック】A1=エリア, C1=媒体を想定。取得範囲をA1:Z1に拡張し、データが存在するかを確認
+            range_list = [f"{sheet_name}!A1:Z1" for sheet_name in POSTING_ACCOUNT_SHEETS.values()]
             
             batch_result = STATUS_SPRS.values_batch_get(range_list)
             
             # 結果を処理
             for acc_key, result in zip(POSTING_ACCOUNT_SHEETS.keys(), batch_result):
                 
-                # アカウント名 (インデックス名)
                 account_key = f"投稿{acc_key}アカウント"
 
                 # gspreadの結果から値を安全に取得
                 values = result.get('values', []) if isinstance(result, dict) else (result if isinstance(result, list) else [])
                 
+                # --- 🚨 デバッグ情報を格納 🚨 ---
+                debug_raw_data[account_key] = values # ここに取得した生のデータが入る
+
                 エリア = "データなし"
                 媒体 = "データなし"
                 
@@ -433,6 +438,13 @@ with tab1:
                     "媒体": "エラー"
                 })
 
+        # --- 🚨 デバッグ情報表示セクション 🚨 ---
+        st.subheader("🛠️ デバッグ情報 (取得された生のデータ)")
+        st.caption("以下にデータが表示されている場合、問題はロジックか権限設定にあります。何も表示されない場合、接続自体に失敗しています。")
+        st.json(debug_raw_data)
+        st.markdown("---")
+        # ----------------------------------------
+        
         # 表示用のDataFrameを作成
         if data_rows_for_df:
             df_status = pd.DataFrame(data_rows_for_df).set_index("アカウント")
