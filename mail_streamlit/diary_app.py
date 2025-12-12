@@ -10,7 +10,6 @@ import datetime
 # --- Google API連携に必要なライブラリ ---
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
-# 【修正箇所】googleapialient を googleapiclient に修正
 from googleapiclient.http import MediaIoBaseUpload  
 from googleapiclient.errors import HttpError
 # ----------------------------------------
@@ -22,7 +21,7 @@ try:
     DRIVE_FOLDER_ID = st.secrets["google_resources"]["drive_folder_id"] 
     
     # テンプレート用SpreadSheet ID
-    USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
+    USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODTSS53beqM"
 
     # アカウント状況ブックID (参照先)
     ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
@@ -391,8 +390,8 @@ with tab1:
         data_rows_for_df = []
 
         try:
-            # 取得範囲を A1:C2 に設定 (A列: エリア, C列: 媒体)
-            range_list = [f"{sheet_name}!A1:C2" for sheet_name in POSTING_ACCOUNT_SHEETS.values()]
+            # 【A1:C1取得ロジック】A1=エリア, C1=媒体を想定
+            range_list = [f"{sheet_name}!A1:C1" for sheet_name in POSTING_ACCOUNT_SHEETS.values()]
             
             batch_result = STATUS_SPRS.values_batch_get(range_list)
             
@@ -408,9 +407,9 @@ with tab1:
                 エリア = "データなし"
                 媒体 = "データなし"
                 
-                # 2行目のデータが存在するかをチェック (データ行はインデックス1)
-                if len(values) > 1:
-                    row_data = values[1] 
+                # 1行目のデータが存在するかをチェック (データ行はインデックス0)
+                if len(values) > 0:
+                    row_data = values[0] # 1行目 (インデックス 0) を取得
                     
                     # A列 (エリア, インデックス 0)
                     エリア = row_data[0].strip() if len(row_data) > 0 and row_data[0] else "未設定"
