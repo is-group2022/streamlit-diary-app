@@ -75,19 +75,37 @@ def gcs_upload_wrapper(uploaded_file, entry, area, store):
 # --- 3. UI 構築 ---
 st.set_page_config(layout="wide", page_title="写メ日記投稿管理")
 
-# --- タブの文字を大きくするカスタムCSS ---
+# --- タブの文字を最大級にするカスタムCSS ---
 st.markdown("""
     <style>
-    /* タブ全体の文字サイズと高さを調整 */
-    button[data-baseweb="tab"] {
-        font-size: 24px !important;
-        font-weight: bold !important;
-        height: 60px !important;
+    /* タブのコンテナ自体の高さを確保 */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+        height: 80px;
     }
-    /* 選択されているタブの色を少し目立たせる（任意） */
+
+    /* 各タブのスタイル */
+    button[data-baseweb="tab"] {
+        font-size: 32px !important; /* さらに大きく */
+        font-weight: 800 !important; /* 極太 */
+        height: 70px !important;
+        padding: 0px 30px !important;
+        background-color: #f0f2f6 !important; /* 未選択時の背景色 */
+        border-radius: 10px 10px 0px 0px !important; /* 角を丸く */
+        margin-right: 5px !important;
+    }
+
+    /* 選択されているタブのスタイル */
     button[data-baseweb="tab"][aria-selected="true"] {
+        color: white !important;
+        background-color: #FF4B4B !important; /* 選択時は赤背景 */
+        border-bottom: 5px solid #b33232 !important;
+    }
+
+    /* マウスを乗せた時（ホバー）の動き */
+    button[data-baseweb="tab"]:hover {
+        background-color: #e0e2e6 !important;
         color: #FF4B4B !important;
-        border-bottom-color: #FF4B4B !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -218,6 +236,7 @@ with tab3:
     except Exception as e:
         st.error(f"🚨 読み込みエラー: {e}")
         st.info("スプレッドシートの右上の「共有」ボタンから、サービスアカウントのメールアドレスが追加されているか再度確認してください。")
+
 
 
 
