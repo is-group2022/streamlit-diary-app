@@ -73,18 +73,52 @@ def gcs_upload_wrapper(uploaded_file, entry, area, store):
 # --- 3. UI 構築 ---
 st.set_page_config(layout="wide", page_title="写メ日記投稿管理")
 
+# --- 余白削除とタブ最大化のカスタムCSS ---
 st.markdown("""
     <style>
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; height: 80px; }
+    /* 1. ページ最上部の余白(パディング)を完全に排除 */
+    .block-container {
+        padding-top: 0rem !important;
+        padding-bottom: 0rem !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+
+    /* 2. ヘッダー領域(デプロイボタン等の背景)を消去して隙間を埋める */
+    header[data-testid="stHeader"] {
+        display: none !important;
+    }
+
+    /* 3. タブリストの隙間と高さを調整 */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+        height: 80px;
+        padding-top: 0px !important;
+    }
+
+    /* 各タブのスタイル */
     button[data-baseweb="tab"] {
-        font-size: 32px !important; font-weight: 800 !important; height: 70px !important;
-        padding: 0px 30px !important; background-color: #f0f2f6 !important; border-radius: 10px 10px 0px 0px !important;
+        font-size: 32px !important;
+        font-weight: 800 !important;
+        height: 70px !important;
+        padding: 0px 30px !important;
+        background-color: #f0f2f6 !important;
+        border-radius: 10px 10px 0px 0px !important;
         margin-right: 5px !important;
     }
+
+    /* 選択されているタブのスタイル */
     button[data-baseweb="tab"][aria-selected="true"] {
-        color: white !important; background-color: #FF4B4B !important; border-bottom: 5px solid #b33232 !important;
+        color: white !important;
+        background-color: #FF4B4B !important;
+        border-bottom: 5px solid #b33232 !important;
     }
-    button[data-baseweb="tab"]:hover { background-color: #e0e2e6 !important; color: #FF4B4B !important; }
+
+    /* マウスを乗せた時の動き */
+    button[data-baseweb="tab"]:hover {
+        background-color: #e0e2e6 !important;
+        color: #FF4B4B !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -94,9 +128,11 @@ if 'diary_entries' not in st.session_state:
 # タブ構成の変更
 tab1, tab2, tab3, tab4 = st.tabs(["📝 ① データ登録", "📊 ② 店舗アカウント状況", "📂 ③ 投稿データ管理", "📚 ④ 使用可能日記文"])
 
-# 共通データ取得（Tab2とTab3で使用）
+# 共通データ取得（集計ロジック含む）
 combined_data = []
-area_summary = {}
+acc_summary = {}  # { アカウント: { エリア: {店舗情報} } }
+acc_counts = {}   # { アカウント: 合計件数 }
+
 try:
     all_worksheets = SPRS.worksheets()
     ws_dict = {ws.title: ws for ws in all_worksheets}
@@ -109,10 +145,15 @@ try:
                     if any(str(cell).strip() for cell in row[:7]):
                         row_full = [row[j] if j < len(row) else "" for j in range(7)]
                         combined_data.append([acc_code, i + 2] + row_full)
-                        a, s, m = str(row[0]).strip(), str(row[1]).strip(), str(row[2]).strip()
-                        if a:
-                            if a not in area_summary: area_summary[a] = set()
-                            area_summary[a].add(f"【{acc_code}】{m} : {s}")
+                        
+                        # 集計用
+                        area, store, media = str(row[0]).strip(), str(row[1]).strip(), str(row[2]).strip()
+                        acc_counts[acc_code] = acc_counts.get(acc_code, 0) + 1
+                        
+                        if acc_code not in acc_summary: acc_summary[acc_code] = {}
+                        if area not in acc_summary[acc_code]: acc_summary[acc_code][area] = set()
+                        if area or store or media:
+                            acc_summary[acc_code][area].add(f"{media} : {store}")
 except: pass
 
 # =========================================================
@@ -246,6 +287,7 @@ with tab4:
         if len(tmp_data) > 1:
             st.dataframe(pd.DataFrame(tmp_data[1:], columns=tmp_data[0]), use_container_width=True, height=600)
     except Exception as e: st.error(f"読み込みエラー: {e}")
+
 
 
 
