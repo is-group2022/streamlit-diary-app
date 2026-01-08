@@ -175,33 +175,32 @@ with tab2:
     else:
         st.info("登録されているデータはありません。")
 # =========================================================
-# --- Tab 3: テンプレート全文表示 (デバッグ版) ---
+# --- Tab 3: テンプレート確認用 (デバッグ・診断版) ---
 # =========================================================
 with tab3:
     st.header("3️⃣ テンプレート確認用")
     try:
-        # スプレッドシートを開く
+        # 診断1: スプレッドシートを開けるか？
+        st.write(f"🔍 スプレッドシート(ID: {USABLE_DIARY_SHEET_ID}) に接続中...")
         tmp_sprs = connect_to_gsheets(USABLE_DIARY_SHEET_ID)
-        
-        # シート名（タブ名）が secrets.toml と一致しているか確認
-        # もし secrets.toml ではなく直接名前を入れるなら "シート1" などに変更
-        target_sheet_name = USABLE_DIARY_SHEET 
-        
-        tmp_ws = tmp_sprs.worksheet(target_sheet_name)
-        tmp_data = tmp_ws.get_all_values()
-        
-        if len(tmp_data) > 1:
-            # 1行目をヘッダーとして表示
-            df_tmp = pd.DataFrame(tmp_data[1:], columns=tmp_data[0])
-            st.dataframe(df_tmp, use_container_width=True)
+        st.success("✅ スプレッドシート自体の接続に成功しました！")
+
+        # 診断2: 存在するシート名（タブ名）の一覧を取得
+        all_worksheets = [ws.title for ws in tmp_sprs.worksheets()]
+        st.write(f"📋 見つかったシート名一覧: {all_worksheets}")
+
+        # 診断3: 指定したシート名が存在するか？
+        target_name = USABLE_DIARY_SHEET
+        if target_name in all_worksheets:
+            tmp_ws = tmp_sprs.worksheet(target_name)
+            tmp_data = tmp_ws.get_all_values()
+            if len(tmp_data) > 1:
+                st.dataframe(pd.DataFrame(tmp_data[1:], columns=tmp_data[0]), use_container_width=True)
+            else:
+                st.info("シートは存在しますが、データが空です。")
         else:
-            st.info("シートにデータが入っていません。")
-            
-    except gspread.exceptions.WorksheetNotFound:
-        st.error(f"❌ シートが見つかりません。シート名「{USABLE_DIARY_SHEET}」が正しいか確認してください。")
-    except gspread.exceptions.APIError as e:
-        st.error(f"❌ Google APIエラー: {e}")
+            st.error(f"❌ 指定されたシート名「{target_name}」が見つかりません。上の「見つかったシート名一覧」の中にある名前に secrets.toml を修正してください。")
+
     except Exception as e:
-        st.warning(f"⚠️ 読み込みエラーが発生しました: {e}")
-
-
+        st.error(f"🚨 致命的なエラーが発生しました: {e}")
+        st.info("ヒント: スプレッドシートIDが正しいか、サービスアカウントに共有されているか確認してください。")
