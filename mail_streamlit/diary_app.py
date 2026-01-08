@@ -75,6 +75,23 @@ def gcs_upload_wrapper(uploaded_file, entry, area, store):
 # --- 3. UI 構築 ---
 st.set_page_config(layout="wide", page_title="写メ日記投稿管理")
 
+# --- タブの文字を大きくするカスタムCSS ---
+st.markdown("""
+    <style>
+    /* タブ全体の文字サイズと高さを調整 */
+    button[data-baseweb="tab"] {
+        font-size: 24px !important;
+        font-weight: bold !important;
+        height: 60px !important;
+    }
+    /* 選択されているタブの色を少し目立たせる（任意） */
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: #FF4B4B !important;
+        border-bottom-color: #FF4B4B !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 if 'diary_entries' not in st.session_state:
     st.session_state.diary_entries = [{h: "" for h in INPUT_HEADERS} for _ in range(40)]
 
@@ -201,6 +218,7 @@ with tab3:
     except Exception as e:
         st.error(f"🚨 読み込みエラー: {e}")
         st.info("スプレッドシートの右上の「共有」ボタンから、サービスアカウントのメールアドレスが追加されているか再度確認してください。")
+
 
 
 
