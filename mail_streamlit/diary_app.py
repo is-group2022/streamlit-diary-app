@@ -172,47 +172,58 @@ with tab1:
             
             st.success(f"✅ 投稿データ {len(rows_main)} 件とログイン情報を GCS およびシートへ登録しました！")
 # =========================================================
-# --- Tab 2: 投稿データ管理 (診断ログ付き) ---
+# --- Tab 2: 投稿データ管理 (API制限対策版) ---
 # =========================================================
 with tab2:
     st.header("2️⃣ 投稿データ管理 (全アカウント統合編集)")
     
     combined_data = []
-    debug_logs = [] # どこで止まっているか確認するためのログ
+    debug_logs = []
 
-    for acc_code, sheet_name in POSTING_ACCOUNT_SHEETS.items():
-        try:
-            # 1. ワークシートの取得を試行
-            ws = SPRS.worksheet(sheet_name)
-            # 2. 全データの取得
-            raw_data = ws.get_all_values()
-            
-            if len(raw_data) > 1:
-                added_count = 0
-                for i, row in enumerate(raw_data[1:]):
-                    # 少なくとも最初の7列のどこかにデータがあるか
-                    if any(str(cell).strip() for cell in row[:7]):
-                        # 列数が足りない場合に備えて長さを調整
-                        row_full = [row[j] if j < len(row) else "" for j in range(7)]
-                        combined_data.append([acc_code, i + 2] + row_full)
-                        added_count += 1
-                debug_logs.append(f"✅ {acc_code}({sheet_name}): {added_count}件取得")
-            else:
-                debug_logs.append(f"⚠️ {acc_code}({sheet_name}): データが空（見出しのみ）")
+    # APIリクエスト回数を最小化
+    try:
+        # スプレッドシート内の全シートを一括取得（通信1回）
+        all_worksheets = SPRS.worksheets()
+        ws_dict = {ws.title: ws for ws in all_worksheets}
+
+        for acc_code, sheet_name in POSTING_ACCOUNT_SHEETS.items():
+            if sheet_name in ws_dict:
+                ws = ws_dict[sheet_name]
+                # 全データを一括取得（通信1回）
+                raw_data = ws.get_all_values()
                 
-        except Exception as e:
-            # エラーを無視せずログに残す
-            debug_logs.append(f"❌ {acc_code}({sheet_name}): エラー -> {str(e)}")
+                if len(raw_data) > 1:
+                    added_count = 0
+                    for i, row in enumerate(raw_data[1:]):
+                        # 最初の7列のいずれかに値がある行を対象とする
+                        if any(str(cell).strip() for cell in row[:7]):
+                            # データの長さを7列に固定（不足分は空文字）
+                            row_full = [row[j] if j < len(row) else "" for j in range(7)]
+                            combined_data.append([acc_code, i + 2] + row_full)
+                            added_count += 1
+                    debug_logs.append(f"✅ {acc_code}({sheet_name}): {added_count}件取得")
+                else:
+                    debug_logs.append(f"⚠️ {acc_code}({sheet_name}): データなし(ヘッダーのみ)")
+            else:
+                debug_logs.append(f"❌ {acc_code}: シート「{sheet_name}」が見つかりません")
+                
+    except Exception as e:
+        if "429" in str(e):
+            st.error("🚨 Google APIの制限（1分間の回数制限）に達しました。30秒〜1分ほど待ってから再読み込みしてください。")
+            debug_logs.append("❌ API制限(429)により読み込み中断")
+        else:
+            st.error(f"❌ 読み込みエラー: {e}")
+            debug_logs.append(f"❌ エラー: {str(e)}")
 
-    # 画面上部に読み込み状況を表示（正常なら消してもOK）
-    with st.expander("📊 読み込み状況の詳細を確認"):
+    # ご要望の「各投稿データ数を確認」ラベル
+    with st.expander("📊 各投稿データ数を確認"):
         for log in debug_logs:
             st.write(log)
 
     if combined_data:
         df = pd.DataFrame(combined_data, columns=["アカウント", "行番号"] + REGISTRATION_HEADERS)
         
-        # 編集画面
+        # 編集テーブルの表示
         edited_df = st.data_editor(
             df, 
             key="main_editor", 
@@ -223,25 +234,31 @@ with tab2:
         )
 
         if st.button("💾 変更内容をスプレッドシートに反映する", type="primary"):
-            with st.spinner("更新中..."):
+            with st.spinner("スプレッドシートを更新中..."):
                 try:
-                    # 変更があったアカウントを特定して更新
+                    # 更新もアカウントごとにまとめて実行
                     for acc_code in POSTING_ACCOUNT_OPTIONS:
                         target_rows = edited_df[edited_df["アカウント"] == acc_code]
                         if target_rows.empty: continue
                         
                         ws = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[acc_code])
+                        # 大量更新時のAPI負荷を考慮し、1行ずつupdate
+                        # ※本来はbatch_updateが理想ですが、まずは既存ロジックを安定化
                         for _, row in target_rows.iterrows():
                             row_idx = int(row["行番号"])
                             new_values = [str(row[h]) for h in REGISTRATION_HEADERS]
-                            # アップデート範囲を明示
                             ws.update(f"A{row_idx}:G{row_idx}", [new_values], value_input_option='USER_ENTERED')
-                    st.success("🎉 スプレッドシートを更新しました！")
-                    st.rerun() # 更新後に画面をリフレッシュ
+                    
+                    st.success("🎉 すべての変更をスプレッドシートに反映しました！")
+                    st.rerun()
                 except Exception as e:
-                    st.error(f"❌ 更新エラー: {e}")
+                    if "429" in str(e):
+                        st.error("🚨 保存中にAPI制限に達しました。一部反映されていない可能性があります。少し待ってから再度保存してください。")
+                    else:
+                        st.error(f"❌ 更新エラー: {e}")
     else:
-        st.info("登録されているデータはありません。")
+        if not debug_logs: # エラーもデータもない場合
+            st.info("登録されているデータはありません。")
 # =========================================================
 # --- Tab 3: テンプレート全文表示 (確定版) ---
 # =========================================================
@@ -270,6 +287,7 @@ with tab3:
     except Exception as e:
         st.error(f"🚨 読み込みエラー: {e}")
         st.info("スプレッドシートの右上の「共有」ボタンから、サービスアカウントのメールアドレスが追加されているか再度確認してください。")
+
 
 
 
