@@ -117,25 +117,35 @@ with tab1:
             st.success(f"✅ {len(rows)}件登録完了！")
 
 # =========================================================
-# --- Tab 2: 投稿データ管理 (統合編集機能) ---
+# --- Tab 2: 投稿データ管理 (空行を除外して表示) ---
 # =========================================================
 with tab2:
     st.header("2️⃣ 投稿データ管理 (全アカウント統合編集)")
-    st.info("💡 表の中身を直接書き換えた後、下の「変更内容を保存する」ボタンを押してください。")
+    st.info("💡 データが入っている行のみ表示しています。編集後、下のボタンで保存してください。")
 
-    # データ読み込み
+    # 1. データ読み込みとフィルタリング
     combined_data = []
     for acc_code, sheet_name in POSTING_ACCOUNT_SHEETS.items():
         try:
             ws = SPRS.worksheet(sheet_name)
-            data = ws.get_all_values()
-            if len(data) > 1:
-                for i, row in enumerate(data[1:]):
-                    # 元のシート名と行番号(1-based, header含む)を保持
-                    combined_data.append([acc_code, i + 2] + row[:7])
-        except: continue
+            raw_data = ws.get_all_values()
+            
+            if len(raw_data) > 1:
+                header = raw_data[0]
+                for i, row in enumerate(raw_data[1:]):
+                    # --- 修正ポイント：空行判定 ---
+                    # A列〜G列（0〜6番目）のうち、一つでも文字が入っているか確認
+                    # 全く入力がない行、またはスペースだけの行はスキップします
+                    if any(cell.strip() for cell in row[:7]):
+                        # 元のシート名と行番号(1-based, header含む)を保持
+                        # row[:7] で確実にG列までを取得
+                        combined_data.append([acc_code, i + 2] + row[:7])
+        except Exception as e:
+            continue
 
+    # 2. テーブル表示と保存処理
     if combined_data:
+        # 表示用カラム定義（ID代わりのアカウント・行番号 + 登録用ヘッダー）
         df = pd.DataFrame(combined_data, columns=["アカウント", "行番号"] + REGISTRATION_HEADERS)
         
         # 編集可能なテーブルを表示
@@ -144,34 +154,53 @@ with tab2:
             key="main_editor",
             use_container_width=True,
             hide_index=True,
-            disabled=["アカウント", "行番号"], # 元データ特定用カラムは編集不可
-            height=600
+            disabled=["アカウント", "行番号"], # 編集不可
+            height=600,
+            # カラムごとの表示幅や設定（お好みで）
+            column_config={
+                "本文": st.column_config.TextColumn("本文", width="large"),
+                "タイトル": st.column_config.TextColumn("タイトル", width="medium"),
+            }
         )
 
+        st.markdown("---")
+        
+        # 保存ボタン
         if st.button("💾 変更内容をスプレッドシートに反映する", type="primary"):
-            with st.spinner("更新中..."):
+            with st.spinner("スプレッドシートを更新中..."):
                 try:
+                    # 更新が必要な行を特定して書き込み
                     for acc_code in POSTING_ACCOUNT_OPTIONS:
-                        # アカウントごとにフィルタリングして一括更新
+                        # 編集後のデータから、該当アカウントの行だけを抽出
                         target_rows = edited_df[edited_df["アカウント"] == acc_code]
-                        if target_rows.empty: continue
+                        if target_rows.empty:
+                            continue
                         
                         ws = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[acc_code])
+                        
                         for _, row in target_rows.iterrows():
                             row_idx = int(row["行番号"])
-                            # A-G列(1-7列)を更新
-                            new_values = row[REGISTRATION_HEADERS].tolist()
+                            # 画面で編集した A-G列のデータをリスト化
+                            new_values = [
+                                str(row["エリア"]),
+                                str(row["店名"]),
+                                str(row["媒体"]),
+                                str(row["投稿時間"]),
+                                str(row["女の子の名前"]),
+                                str(row["タイトル"]),
+                                str(row["本文"])
+                            ]
+                            
+                            # ピンポイントでその行（A:G）を更新
                             cell_range = f"A{row_idx}:G{row_idx}"
                             ws.update(cell_range, [new_values], value_input_option='USER_ENTERED')
                     
-                    st.success("🎉 すべての変更がスプレッドシートに反映されました！")
+                    st.success("🎉 すべての変更が反映されました！")
                     st.balloons()
-                    # 更新を反映させるために再描画
-                    # st.rerun() # 必要に応じて有効化
                 except Exception as e:
-                    st.error(f"❌ 更新エラー: {e}")
+                    st.error(f"❌ 更新中にエラーが発生しました: {e}")
     else:
-        st.info("現在、登録されているデータはありません。")
+        st.info("現在、どのアカウントにも投稿待ちデータはありません。")
 
 # =========================================================
 # --- Tab 3: テンプレート全文表示 ---
@@ -185,3 +214,4 @@ with tab3:
         if len(tmp_data) > 1:
             st.dataframe(pd.DataFrame(tmp_data[1:], columns=tmp_data[0]), use_container_width=True)
     except: st.warning("テンプレート読み込み失敗")
+
