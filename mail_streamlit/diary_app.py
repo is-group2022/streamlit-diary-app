@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import gspread
+import zipfile
 from io import BytesIO
 from google.oauth2.service_account import Credentials
 from google.cloud import storage  # 追加
@@ -283,56 +284,89 @@ with tab4:
 # =========================================================
 with tab5:
     st.header("🖼 使用可能画像ブラウザ（落ち店）")
-    
-    ROOT_PATH = "【落ち店】/"
+
+    # セッション状態の初期化（選択された画像のパスを保持）
+    if 'selected_images' not in st.session_state:
+        st.session_state.selected_images = set()
+
+    ROOT_PATH = "【落ち店】/"  # フォルダ名に合わせて修正
 
     # --- フォルダ一覧を取得 ---
     try:
         bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
-        # delimiter='/' を使うことで「フォルダ（プレフィックス）」を取得できる
         blobs = GCS_CLIENT.list_blobs(GCS_BUCKET_NAME, prefix=ROOT_PATH, delimiter='/')
-        list(blobs) # イテレータを回して prefixes を確定させる
+        list(blobs) 
         folders = blobs.prefixes
     except Exception as e:
         st.error(f"GCS接続エラー: {e}")
         folders = []
 
+    # --- サイドバー的あるいは上部に「選択中の枚数」と「操作ボタン」を表示 ---
+    if st.session_state.selected_images:
+        count = len(st.session_state.selected_images)
+        st.success(f"現在 {count} 枚の画像を選択中")
+        
+        c1, c2 = st.columns(2)
+        
+        # 1. ダウンロード & 削除処理
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+            for img_path in list(st.session_state.selected_images):
+                blob = bucket.blob(img_path)
+                data = blob.download_as_bytes()
+                zip_file.writestr(img_path.split("/")[-1], data)
+
+        if c1.download_button(
+            label="⬇️ 選択した画像をZIPで保存してGCSから削除",
+            data=zip_buffer.getvalue(),
+            file_name="downloaded_images.zip",
+            mime="application/zip",
+            use_container_width=True,
+            type="primary"
+        ):
+            # ダウンロードが実行されたらGCSから削除
+            for img_path in list(st.session_state.selected_images):
+                bucket.blob(img_path).delete()
+            # セッションをクリアしてリロード
+            st.session_state.selected_images = set()
+            st.rerun()
+
+        if c2.button("🗑 選択をすべて解除", use_container_width=True):
+            st.session_state.selected_images = set()
+            st.rerun()
+
+    st.markdown("---")
+
+    # --- フォルダ・画像表示エリア ---
     if folders:
-        # フォルダ選択（表示用に整形）
         folder_options = {f.replace(ROOT_PATH, "").replace("/", ""): f for f in folders}
         selected_key = st.selectbox("📁 表示するフォルダ（店舗）を選択", ["選択してください"] + list(folder_options.keys()))
         
         if selected_key != "選択してください":
             target_path = folder_options[selected_key]
-            
-            # --- 画像ファイルを取得 ---
             images = list(bucket.list_blobs(prefix=target_path))
             valid_extensions = ('.jpg', '.jpeg', '.png', '.webp', '.gif')
             image_blobs = [b for b in images if b.name.lower().endswith(valid_extensions)]
             
             if image_blobs:
-                st.write(f"### 📍 {selected_key} の画像（{len(image_blobs)}枚）")
                 cols = st.columns(3)
                 for idx, blob in enumerate(image_blobs):
                     with cols[idx % 3]:
-                        try:
-                            # 署名付きURLを発行
-                            # ※ここでエラーが出る場合は権限不足の可能性大
-                            img_url = blob.generate_signed_url(
-                                version="v4",
-                                expiration=3600, # 1時間有効
-                                method="GET"
-                            )
-                            st.image(img_url, use_container_width=True)
-                            st.caption(f"📄 {blob.name.split('/')[-1]}")
-                        except Exception as e:
-                            st.error(f"画像生成失敗: {blob.name.split('/')[-1]}")
-                            # 権限がない場合に備えて詳細なエラーを出したい場合はここを表示
-                            # st.caption(f"Error: {e}")
+                        # 署名付きURLを発行
+                        img_url = blob.generate_signed_url(version="v4", expiration=3600, method="GET")
+                        st.image(img_url, use_container_width=True)
+                        
+                        # チェックボックス（セッション状態を反映）
+                        is_checked = blob.name in st.session_state.selected_images
+                        if st.checkbox(f"選択: {blob.name.split('/')[-1]}", value=is_checked, key=f"check_{blob.name}"):
+                            st.session_state.selected_images.add(blob.name)
+                        else:
+                            st.session_state.selected_images.discard(blob.name)
             else:
                 st.info("このフォルダ内に画像が見つかりませんでした。")
     else:
         st.warning(f"'{ROOT_PATH}' 内にフォルダが見つかりません。")
+
 
 
 
