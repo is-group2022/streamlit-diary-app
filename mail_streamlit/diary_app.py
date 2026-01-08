@@ -70,58 +70,6 @@ def gcs_upload_wrapper(uploaded_file, entry, area, store):
         st.error(f"❌ GCSアップロード失敗: {e}")
         return False
 
-申し訳ありません、Streamlitの「フォーム（st.form）」の仕様により、内部の要素を固定するのが非常に難しい状態でした。
-
-「赤い線」を削除し、**「フォームを使わずに入力欄を並べる」**方式に切り替えることで、確実にブラウザ標準の固定機能（Sticky）が効くように修正しました。これで、40行スクロールしても見出しが画面上端にピタッと張り付きます。
-
-修正版フルコード
-Python
-
-import streamlit as st
-import pandas as pd
-import gspread
-from io import BytesIO
-from google.oauth2.service_account import Credentials
-from google.cloud import storage 
-
-# --- 1. 定数と初期設定 ---
-try:
-    SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"] 
-    ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
-    USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
-    GCS_BUCKET_NAME = "auto-poster-images"
-    POSTING_ACCOUNT_SHEETS = {"A": "投稿Aアカウント", "B": "投稿Bアカウント", "C": "投稿Cアカウント", "D": "投稿Dアカウント"}
-    MEDIA_OPTIONS = ["駅ちか", "デリじゃ"]
-    POSTING_ACCOUNT_OPTIONS = ["A", "B", "C", "D"] 
-    REGISTRATION_HEADERS = ["エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文"]
-    INPUT_HEADERS = ["投稿時間", "女の子の名前", "タイトル", "本文"]
-except:
-    st.error("🚨 設定エラー"); st.stop()
-
-# --- 2. 各種API連携 ---
-@st.cache_resource(ttl=3600)
-def connect_to_gsheets(sheet_id):
-    client = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
-    return client.open_by_key(sheet_id)
-
-@st.cache_resource(ttl=3600)
-def get_gcs_client():
-    return storage.Client.from_service_account_info(st.secrets["gcp_service_account"])
-
-SPRS = connect_to_gsheets(SHEET_ID)
-STATUS_SPRS = connect_to_gsheets(ACCOUNT_STATUS_SHEET_ID) 
-GCS_CLIENT = get_gcs_client()
-
-def gcs_upload_wrapper(uploaded_file, entry, area, store):
-    try:
-        bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
-        folder_name = f"デリじゃ {store}" if st.session_state.global_media == "デリじゃ" else store
-        ext = uploaded_file.name.split('.')[-1]
-        blob_path = f"{area}/{folder_name}/{entry['投稿時間'].strip()}_{entry['女の子の名前'].strip()}.{ext}"
-        blob = bucket.blob(blob_path)
-        blob.upload_from_string(uploaded_file.getvalue(), content_type=uploaded_file.type)
-    except: pass
-
 # --- 3. UI 構築 ---
 st.set_page_config(layout="wide", page_title="写メ日記投稿管理")
 
@@ -323,6 +271,7 @@ with tab4:
         if len(tmp_data) > 1:
             st.dataframe(pd.DataFrame(tmp_data[1:], columns=tmp_data[0]), use_container_width=True, height=600)
     except Exception as e: st.error(f"読み込みエラー: {e}")
+
 
 
 
