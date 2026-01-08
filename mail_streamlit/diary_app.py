@@ -55,14 +55,12 @@ try:
 except Exception as e:
     st.error(f"❌ API接続失敗: {e}"); st.stop()
 
-# --- GCS 補助関数 (ドライブ関数から差し替え) ---
+# --- GCS 補助関数 ---
 def gcs_upload_wrapper(uploaded_file, entry, area, store):
     try:
         bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
-        # フォルダ階層の作成
         folder_name = f"デリじゃ {store}" if st.session_state.global_media == "デリじゃ" else store
         ext = uploaded_file.name.split('.')[-1]
-        # パス: エリア/店名/時間_名前.拡張子
         blob_path = f"{area}/{folder_name}/{entry['投稿時間'].strip()}_{entry['女の子の名前'].strip()}.{ext}"
         
         blob = bucket.blob(blob_path)
@@ -75,75 +73,68 @@ def gcs_upload_wrapper(uploaded_file, entry, area, store):
 # --- 3. UI 構築 ---
 st.set_page_config(layout="wide", page_title="写メ日記投稿管理")
 
-# --- タブの文字を最大級にするカスタムCSS ---
 st.markdown("""
     <style>
-    /* タブのコンテナ自体の高さを確保 */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 10px;
-        height: 80px;
-    }
-
-    /* 各タブのスタイル */
+    .stTabs [data-baseweb="tab-list"] { gap: 10px; height: 80px; }
     button[data-baseweb="tab"] {
-        font-size: 32px !important; /* さらに大きく */
-        font-weight: 800 !important; /* 極太 */
-        height: 70px !important;
-        padding: 0px 30px !important;
-        background-color: #f0f2f6 !important; /* 未選択時の背景色 */
-        border-radius: 10px 10px 0px 0px !important; /* 角を丸く */
+        font-size: 32px !important; font-weight: 800 !important; height: 70px !important;
+        padding: 0px 30px !important; background-color: #f0f2f6 !important; border-radius: 10px 10px 0px 0px !important;
         margin-right: 5px !important;
     }
-
-    /* 選択されているタブのスタイル */
     button[data-baseweb="tab"][aria-selected="true"] {
-        color: white !important;
-        background-color: #FF4B4B !important; /* 選択時は赤背景 */
-        border-bottom: 5px solid #b33232 !important;
+        color: white !important; background-color: #FF4B4B !important; border-bottom: 5px solid #b33232 !important;
     }
-
-    /* マウスを乗せた時（ホバー）の動き */
-    button[data-baseweb="tab"]:hover {
-        background-color: #e0e2e6 !important;
-        color: #FF4B4B !important;
-    }
+    button[data-baseweb="tab"]:hover { background-color: #e0e2e6 !important; color: #FF4B4B !important; }
     </style>
 """, unsafe_allow_html=True)
 
 if 'diary_entries' not in st.session_state:
     st.session_state.diary_entries = [{h: "" for h in INPUT_HEADERS} for _ in range(40)]
 
-tab1, tab2, tab3 = st.tabs(["📝 ① データ登録", "📂 ② 投稿データ管理", "📚 ③  使用可能日記文表示"])
+# タブ構成の変更
+tab1, tab2, tab3, tab4 = st.tabs(["📝 ① データ登録", "📊 ② 店舗アカウント状況", "📂 ③ 投稿データ管理", "📚 ④ 使用可能日記文"])
+
+# 共通データ取得（Tab2とTab3で使用）
+combined_data = []
+area_summary = {}
+try:
+    all_worksheets = SPRS.worksheets()
+    ws_dict = {ws.title: ws for ws in all_worksheets}
+    for acc_code, sheet_name in POSTING_ACCOUNT_SHEETS.items():
+        if sheet_name in ws_dict:
+            ws = ws_dict[sheet_name]
+            raw_data = ws.get_all_values()
+            if len(raw_data) > 1:
+                for i, row in enumerate(raw_data[1:]):
+                    if any(str(cell).strip() for cell in row[:7]):
+                        row_full = [row[j] if j < len(row) else "" for j in range(7)]
+                        combined_data.append([acc_code, i + 2] + row_full)
+                        a, s, m = str(row[0]).strip(), str(row[1]).strip(), str(row[2]).strip()
+                        if a:
+                            if a not in area_summary: area_summary[a] = set()
+                            area_summary[a].add(f"【{acc_code}】{m} : {s}")
+except: pass
 
 # =========================================================
-# --- Tab 1: データ登録 ---
+# --- Tab 1: 📝 データ登録 ---
 # =========================================================
 with tab1:
     st.header("1️⃣ 新規データ登録")
-    
     c1, c2, c3, c4 = st.columns(4)
     target_acc = c1.selectbox("👤 投稿アカウント", POSTING_ACCOUNT_OPTIONS)
     st.session_state.global_media = c2.selectbox("🌐 媒体", MEDIA_OPTIONS)
     global_area = c3.text_input("📍 エリア")
     global_store = c4.text_input("🏢 店名")
-
     st.markdown("---")
     st.subheader("🔑 ログイン情報（アカウント登録用）")
     c5, c6 = st.columns(2)
     login_id = c5.text_input("ID", key="login_id")
     login_pw = c6.text_input("パスワード", key="login_pw")
-
     st.markdown("---")
     st.subheader("📸 投稿内容入力")
-    
     with st.form("reg_form"):
         h_cols = st.columns([1, 1, 2, 3, 2])
-        h_cols[0].write("**投稿時間**")
-        h_cols[1].write("**女の子の名前**")
-        h_cols[2].write("**タイトル**")
-        h_cols[3].write("**本文**")
-        h_cols[4].write("**画像**")
-
+        h_cols[0].write("**投稿時間**"); h_cols[1].write("**女の子の名前**"); h_cols[2].write("**タイトル**"); h_cols[3].write("**本文**"); h_cols[4].write("**画像**")
         for i in range(40):
             cols = st.columns([1, 1, 2, 3, 2])
             st.session_state.diary_entries[i]['投稿時間'] = cols[0].text_input(f"時間{i}", key=f"t_{i}", label_visibility="collapsed")
@@ -151,160 +142,67 @@ with tab1:
             st.session_state.diary_entries[i]['タイトル'] = cols[2].text_area(f"題{i}", key=f"ti_{i}", height=68, label_visibility="collapsed")
             st.session_state.diary_entries[i]['本文'] = cols[3].text_area(f"本{i}", key=f"b_{i}", height=68, label_visibility="collapsed")
             st.session_state.diary_entries[i]['img'] = cols[4].file_uploader(f"画{i}", key=f"img_{i}", label_visibility="collapsed")
-        
         if st.form_submit_button("🔥 データを登録する", type="primary"):
             valid_data = [e for e in st.session_state.diary_entries if e['投稿時間'] and e['女の子の名前']]
-            if not valid_data: st.error("投稿内容を入力してください"); st.stop()
-            
-            # A. GCSアップロード
+            if not valid_data: st.error("入力してください"); st.stop()
             for e in valid_data:
                 if e['img']: gcs_upload_wrapper(e['img'], e, global_area, global_store)
-            
-            # B. メインシート書き込み
             ws_main = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[target_acc])
             rows_main = [[global_area, global_store, st.session_state.global_media, e['投稿時間'], e['女の子の名前'], e['タイトル'], e['本文']] for e in valid_data]
             ws_main.append_rows(rows_main, value_input_option='USER_ENTERED')
-            
-            # C. ステータス管理シート書き込み
             ws_status = STATUS_SPRS.worksheet(POSTING_ACCOUNT_SHEETS[target_acc])
             status_row = [global_area, global_store, st.session_state.global_media, login_id, login_pw]
             ws_status.append_row(status_row, value_input_option='USER_ENTERED')
-            
-            st.success(f"✅ 投稿データ {len(rows_main)} 件とログイン情報を GCS およびシートへ登録しました！")
+            st.success("✅ 登録完了！")
+
 # =========================================================
-# --- Tab 2: 投稿データ管理 (UI/UX 強化版) ---
+# --- Tab 2: 📊 全アカウント店舗アカウント状況 ---
 # =========================================================
 with tab2:
-    st.markdown("### 📊 全アカウント稼働状況")
-    
-    combined_data = []
-    summary_stats = [] # 概要表示用のリスト
-
-    try:
-        all_worksheets = SPRS.worksheets()
-        ws_dict = {ws.title: ws for ws in all_worksheets}
-
-        # 4つのアカウントを横並びのカードで表示するためのカラム
-        cols = st.columns(len(POSTING_ACCOUNT_OPTIONS))
-
-        for idx, (acc_code, sheet_name) in enumerate(POSTING_ACCOUNT_SHEETS.items()):
-            with cols[idx]:
-                if sheet_name in ws_dict:
-                    ws = ws_dict[sheet_name]
-                    raw_data = ws.get_all_values()
-                    
-                    if len(raw_data) > 1:
-                        added_count = 0
-                        store_info_set = set()
-                        
-                        for i, row in enumerate(raw_data[1:]):
-                            if any(str(cell).strip() for cell in row[:7]):
-                                row_full = [row[j] if j < len(row) else "" for j in range(7)]
-                                combined_data.append([acc_code, i + 2] + row_full)
-                                added_count += 1
-                                # 診断用情報抽出
-                                area = str(row[0]).strip()
-                                store = str(row[1]).strip()
-                                media = str(row[2]).strip()
-                                if area or store or media:
-                                    store_info_set.add(f"{area} / {media}\n{store}")
-                        
-                        # --- カード型UIの表示 ---
-                        st.metric(label=f"アカウント {acc_code}", value=f"{added_count} 件")
-                        for info in store_info_set:
-                            st.caption(f"📍 {info}")
-                        st.markdown("---")
-                    else:
-                        st.metric(label=f"アカウント {acc_code}", value="0 件", delta="データなし", delta_color="off")
-                else:
-                    st.error(f"{acc_code}: 未接続")
-
-    except Exception as e:
-        if "429" in str(e):
-            st.error("🚨 API制限中：1分ほど待機してください")
-        else:
-            st.error(f"❌ エラー: {e}")
-
-    # --- 編集エリア ---
-    st.markdown("---")
-    st.subheader("📝 投稿データの一括編集")
-    
-    if combined_data:
-        df = pd.DataFrame(combined_data, columns=["アカウント", "行番号"] + REGISTRATION_HEADERS)
-        
-        # テーブルを見やすくするための設定
-        edited_df = st.data_editor(
-            df, 
-            key="main_editor", 
-            use_container_width=True, 
-            hide_index=True, 
-            disabled=["アカウント", "行番号"], 
-            height=600,
-            column_config={
-                "アカウント": st.column_config.TextColumn("👤", width="small"),
-                "エリア": st.column_config.TextColumn("📍 エリア", width="small"),
-                "媒体": st.column_config.SelectboxColumn("🌐 媒体", options=MEDIA_OPTIONS, width="small"),
-                "投稿時間": st.column_config.TextColumn("⏰ 時間", width="small"),
-                "女の子の名前": st.column_config.TextColumn("👩 名前", width="medium"),
-                "タイトル": st.column_config.TextColumn("📄 タイトル", width="medium"),
-                "本文": st.column_config.TextColumn("📝 本文", width="large"),
-            }
-        )
-
-        # 保存ボタンを巨大かつ中央寄りに配置
-        left, mid, right = st.columns([1, 2, 1])
-        with mid:
-            if st.button("🔥 変更内容をスプレッドシートに一括反映する", type="primary", use_container_width=True):
-                with st.spinner("保存中..."):
-                    try:
-                        for acc_code in POSTING_ACCOUNT_OPTIONS:
-                            target_rows = edited_df[edited_df["アカウント"] == acc_code]
-                            if target_rows.empty: continue
-                            ws = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[acc_code])
-                            for _, row in target_rows.iterrows():
-                                row_idx = int(row["行番号"])
-                                new_values = [str(row[h]) for h in REGISTRATION_HEADERS]
-                                ws.update(f"A{row_idx}:G{row_idx}", [new_values], value_input_option='USER_ENTERED')
-                        st.success("🎉 更新完了！")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"更新エラー: {e}")
+    st.markdown("## 📊 全アカウント店舗アカウント状況")
+    if area_summary:
+        area_cols = st.columns(len(area_summary))
+        for i, (area_name, shops) in enumerate(area_summary.items()):
+            with area_cols[i % len(area_summary)]:
+                st.info(f"📍 **{area_name}**")
+                for shop in shops:
+                    st.write(f"└ {shop}")
     else:
-        st.info("現在、編集可能なデータはありません。")
+        st.info("現在稼働中の店舗データはありません。")
+
 # =========================================================
-# --- Tab 3: テンプレート全文表示 (確定版) ---
+# --- Tab 3: 📂 投稿データ管理 ---
 # =========================================================
 with tab3:
-    st.header("3️⃣ 使用可能日記文")
+    st.markdown("### 📂 投稿データ管理 (一括編集)")
+    if combined_data:
+        df = pd.DataFrame(combined_data, columns=["アカウント", "行番号"] + REGISTRATION_HEADERS)
+        edited_df = st.data_editor(df, key="main_editor", use_container_width=True, hide_index=True, disabled=["アカウント", "行番号"], height=600)
+        if st.button("🔥 変更内容をスプレッドシートに一括反映する", type="primary", use_container_width=True):
+            with st.spinner("保存中..."):
+                try:
+                    for acc_code in POSTING_ACCOUNT_OPTIONS:
+                        target_rows = edited_df[edited_df["アカウント"] == acc_code]
+                        if target_rows.empty: continue
+                        ws = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[acc_code])
+                        for _, row in target_rows.iterrows():
+                            row_idx = int(row["行番号"])
+                            new_values = [str(row[h]) for h in REGISTRATION_HEADERS]
+                            ws.update(f"A{row_idx}:G{row_idx}", [new_values], value_input_option='USER_ENTERED')
+                    st.success("🎉 更新完了！"); st.rerun()
+                except Exception as e: st.error(f"エラー: {e}")
+    else:
+        st.info("編集可能なデータはありません。")
+
+# =========================================================
+# --- Tab 4: 📚 使用可能日記文表示 ---
+# =========================================================
+with tab4:
+    st.header("4️⃣ 使用可能日記文")
     try:
-        # スプレッドシートに接続
         tmp_sprs = connect_to_gsheets(USABLE_DIARY_SHEET_ID)
-        
-        # 直接シート名を指定して読み込み
-        target_name = "【使用可能日記文】"
-        tmp_ws = tmp_sprs.worksheet(target_name)
-        
-        # データの取得
+        tmp_ws = tmp_sprs.worksheet("【使用可能日記文】")
         tmp_data = tmp_ws.get_all_values()
-        
         if len(tmp_data) > 1:
-            # 1行目をヘッダーとしてデータフレームを作成
-            df_tmp = pd.DataFrame(tmp_data[1:], columns=tmp_data[0])
-            
-            # 画面いっぱいに表示
-            st.dataframe(df_tmp, use_container_width=True, height=600)
-        else:
-            st.info(f"シート「{target_name}」にデータが見つかりませんでした。")
-            
-    except Exception as e:
-        st.error(f"🚨 読み込みエラー: {e}")
-        st.info("スプレッドシートの右上の「共有」ボタンから、サービスアカウントのメールアドレスが追加されているか再度確認してください。")
-
-
-
-
-
-
-
-
-
+            st.dataframe(pd.DataFrame(tmp_data[1:], columns=tmp_data[0]), use_container_width=True, height=600)
+    except Exception as e: st.error(f"読み込みエラー: {e}")
