@@ -11,7 +11,7 @@ try:
     SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"] 
     DRIVE_FOLDER_ID = st.secrets["google_resources"]["drive_folder_id"] 
     ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
-    USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODTSS53beqM"
+    USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
 
     SHEET_NAMES = st.secrets["sheet_names"]
     POSTING_ACCOUNT_SHEETS = {
@@ -175,32 +175,30 @@ with tab2:
     else:
         st.info("登録されているデータはありません。")
 # =========================================================
-# --- Tab 3: テンプレート確認用 (デバッグ・診断版) ---
+# --- Tab 3: テンプレート全文表示 (確定版) ---
 # =========================================================
 with tab3:
     st.header("3️⃣ テンプレート確認用")
     try:
-        # 診断1: スプレッドシートを開けるか？
-        st.write(f"🔍 スプレッドシート(ID: {USABLE_DIARY_SHEET_ID}) に接続中...")
+        # スプレッドシートに接続
         tmp_sprs = connect_to_gsheets(USABLE_DIARY_SHEET_ID)
-        st.success("✅ スプレッドシート自体の接続に成功しました！")
-
-        # 診断2: 存在するシート名（タブ名）の一覧を取得
-        all_worksheets = [ws.title for ws in tmp_sprs.worksheets()]
-        st.write(f"📋 見つかったシート名一覧: {all_worksheets}")
-
-        # 診断3: 指定したシート名が存在するか？
-        target_name = USABLE_DIARY_SHEET
-        if target_name in all_worksheets:
-            tmp_ws = tmp_sprs.worksheet(target_name)
-            tmp_data = tmp_ws.get_all_values()
-            if len(tmp_data) > 1:
-                st.dataframe(pd.DataFrame(tmp_data[1:], columns=tmp_data[0]), use_container_width=True)
-            else:
-                st.info("シートは存在しますが、データが空です。")
+        
+        # 直接シート名を指定して読み込み
+        target_name = "【使用可能日記文】"
+        tmp_ws = tmp_sprs.worksheet(target_name)
+        
+        # データの取得
+        tmp_data = tmp_ws.get_all_values()
+        
+        if len(tmp_data) > 1:
+            # 1行目をヘッダーとしてデータフレームを作成
+            df_tmp = pd.DataFrame(tmp_data[1:], columns=tmp_data[0])
+            
+            # 画面いっぱいに表示
+            st.dataframe(df_tmp, use_container_width=True, height=600)
         else:
-            st.error(f"❌ 指定されたシート名「{target_name}」が見つかりません。上の「見つかったシート名一覧」の中にある名前に secrets.toml を修正してください。")
-
+            st.info(f"シート「{target_name}」にデータが見つかりませんでした。")
+            
     except Exception as e:
-        st.error(f"🚨 致命的なエラーが発生しました: {e}")
-        st.info("ヒント: スプレッドシートIDが正しいか、サービスアカウントに共有されているか確認してください。")
+        st.error(f"🚨 読み込みエラー: {e}")
+        st.info("スプレッドシートの右上の「共有」ボタンから、サービスアカウントのメールアドレスが追加されているか再度確認してください。")
