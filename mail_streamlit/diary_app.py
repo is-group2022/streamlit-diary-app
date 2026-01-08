@@ -175,18 +175,33 @@ with tab2:
     else:
         st.info("登録されているデータはありません。")
 # =========================================================
-# --- Tab 3: テンプレート全文表示 ---
+# --- Tab 3: テンプレート全文表示 (デバッグ版) ---
 # =========================================================
 with tab3:
     st.header("3️⃣ テンプレート確認用")
     try:
+        # スプレッドシートを開く
         tmp_sprs = connect_to_gsheets(USABLE_DIARY_SHEET_ID)
-        tmp_ws = tmp_sprs.worksheet(USABLE_DIARY_SHEET)
+        
+        # シート名（タブ名）が secrets.toml と一致しているか確認
+        # もし secrets.toml ではなく直接名前を入れるなら "シート1" などに変更
+        target_sheet_name = USABLE_DIARY_SHEET 
+        
+        tmp_ws = tmp_sprs.worksheet(target_sheet_name)
         tmp_data = tmp_ws.get_all_values()
+        
         if len(tmp_data) > 1:
-            st.dataframe(pd.DataFrame(tmp_data[1:], columns=tmp_data[0]), use_container_width=True)
-    except: st.warning("テンプレート読み込み失敗")
-
-
+            # 1行目をヘッダーとして表示
+            df_tmp = pd.DataFrame(tmp_data[1:], columns=tmp_data[0])
+            st.dataframe(df_tmp, use_container_width=True)
+        else:
+            st.info("シートにデータが入っていません。")
+            
+    except gspread.exceptions.WorksheetNotFound:
+        st.error(f"❌ シートが見つかりません。シート名「{USABLE_DIARY_SHEET}」が正しいか確認してください。")
+    except gspread.exceptions.APIError as e:
+        st.error(f"❌ Google APIエラー: {e}")
+    except Exception as e:
+        st.warning(f"⚠️ 読み込みエラーが発生しました: {e}")
 
 
