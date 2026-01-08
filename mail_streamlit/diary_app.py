@@ -284,52 +284,56 @@ with tab4:
 with tab5:
     st.header("🖼 使用可能画像ブラウザ（落ち店）")
     
-    # GCSからフォルダ一覧を取得する関数
-    def list_gcs_folders(bucket_name, prefix):
-        bucket = GCS_CLIENT.bucket(bucket_name)
-        blobs = GCS_CLIENT.list_blobs(bucket_name, prefix=prefix, delimiter='/')
-        # blobs自体を回すのではなく、prefixes（ディレクトリ）を取得
-        list(blobs) # イテレータを回す必要がある
-        return blobs.prefixes
+    ROOT_PATH = "落ち店/"
 
-    # GCSから画像ファイル一覧を取得する関数
-    def list_gcs_images(bucket_name, folder_path):
-        bucket = GCS_CLIENT.bucket(bucket_name)
-        blobs = bucket.list_blobs(prefix=folder_path)
-        # 画像拡張子のみ抽出
-        valid_extensions = ('.jpg', '.jpeg', '.png', '.webp', '.gif')
-        return [blob for blob in blobs if blob.name.lower().endswith(valid_extensions)]
+    # --- フォルダ一覧を取得 ---
+    try:
+        bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
+        # delimiter='/' を使うことで「フォルダ（プレフィックス）」を取得できる
+        blobs = GCS_CLIENT.list_blobs(GCS_BUCKET_NAME, prefix=ROOT_PATH, delimiter='/')
+        list(blobs) # イテレータを回して prefixes を確定させる
+        folders = blobs.prefixes
+    except Exception as e:
+        st.error(f"GCS接続エラー: {e}")
+        folders = []
 
-    # メイン処理
-    ROOT_PATH = "【落ち店】/"
-    
-    # フォルダ一覧を取得
-    folders = list_gcs_folders(GCS_BUCKET_NAME, ROOT_PATH)
-    
     if folders:
-        # フォルダ選択（"落ち店/店舗名/" の形式で返ってくるので整形して表示）
-        folder_options = {f.split('/')[-2]: f for f in folders}
-        selected_folder_name = st.selectbox("📁 表示するフォルダ（店舗）を選択してください", ["選択してください"] + list(folder_options.keys()))
+        # フォルダ選択（表示用に整形）
+        folder_options = {f.replace(ROOT_PATH, "").replace("/", ""): f for f in folders}
+        selected_key = st.selectbox("📁 表示するフォルダ（店舗）を選択", ["選択してください"] + list(folder_options.keys()))
         
-        if selected_folder_name != "選択してください":
-            target_path = folder_options[selected_folder_name]
-            st.write(f"### 📍 {selected_folder_name} の画像一覧")
+        if selected_key != "選択してください":
+            target_path = folder_options[selected_key]
             
-            images = list_gcs_images(GCS_BUCKET_NAME, target_path)
+            # --- 画像ファイルを取得 ---
+            images = list(bucket.list_blobs(prefix=target_path))
+            valid_extensions = ('.jpg', '.jpeg', '.png', '.webp', '.gif')
+            image_blobs = [b for b in images if b.name.lower().endswith(valid_extensions)]
             
-            if images:
-                # 3列で画像を表示
+            if image_blobs:
+                st.write(f"### 📍 {selected_key} の画像（{len(image_blobs)}枚）")
                 cols = st.columns(3)
-                for idx, blob in enumerate(images):
+                for idx, blob in enumerate(image_blobs):
                     with cols[idx % 3]:
-                        # 署名付きURLを発行（1時間有効）
-                        url = blob.generate_signed_url(expiration=3600)
-                        st.image(url, use_container_width=True)
-                        st.caption(f"📄 {blob.name.split('/')[-1]}")
+                        try:
+                            # 署名付きURLを発行
+                            # ※ここでエラーが出る場合は権限不足の可能性大
+                            img_url = blob.generate_signed_url(
+                                version="v4",
+                                expiration=3600, # 1時間有効
+                                method="GET"
+                            )
+                            st.image(img_url, use_container_width=True)
+                            st.caption(f"📄 {blob.name.split('/')[-1]}")
+                        except Exception as e:
+                            st.error(f"画像生成失敗: {blob.name.split('/')[-1]}")
+                            # 権限がない場合に備えて詳細なエラーを出したい場合はここを表示
+                            # st.caption(f"Error: {e}")
             else:
-                st.info("このフォルダに画像はありません。")
+                st.info("このフォルダ内に画像が見つかりませんでした。")
     else:
-        st.warning(f"GCSに '{ROOT_PATH}' フォルダが見つかりません。パスを確認してください。")
+        st.warning(f"'{ROOT_PATH}' 内にフォルダが見つかりません。")
+
 
 
 
