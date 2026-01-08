@@ -284,7 +284,7 @@ with tab4:
 with tab5:
     st.header("🖼 使用可能画像ブラウザ（落ち店）")
     
-    ROOT_PATH = "落ち店/"
+    ROOT_PATH = "【落ち店】/"
 
     # --- フォルダ一覧を取得 ---
     try:
@@ -333,6 +333,7 @@ with tab5:
                 st.info("このフォルダ内に画像が見つかりませんでした。")
     else:
         st.warning(f"'{ROOT_PATH}' 内にフォルダが見つかりません。")
+
 
 
 
