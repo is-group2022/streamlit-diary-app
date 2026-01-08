@@ -102,7 +102,7 @@ with tab1:
         # ヘッダーラベルを表示
         h_cols = st.columns([1, 1, 2, 3, 2])
         h_cols[0].write("**投稿時間**")
-        h_cols[1].write("**名**")
+        h_cols[1].write("**女の子の名前**")
         h_cols[2].write("**タイトル**")
         h_cols[3].write("**本文**")
         h_cols[4].write("**画像**")
@@ -186,6 +186,7 @@ with tab3:
         if len(tmp_data) > 1:
             st.dataframe(pd.DataFrame(tmp_data[1:], columns=tmp_data[0]), use_container_width=True)
     except: st.warning("テンプレート読み込み失敗")
+
 
 
 
