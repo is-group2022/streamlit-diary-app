@@ -3,15 +3,19 @@ import pandas as pd
 import gspread
 from io import BytesIO
 from google.oauth2.service_account import Credentials
+from google.cloud import storage  # 追加
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload  
+from googleapiclient.http import MediaIoBaseUpload
 
 # --- 1. 定数と初期設定 ---
 try:
     SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"] 
-    DRIVE_FOLDER_ID = st.secrets["google_resources"]["drive_folder_id"] 
+    # ACCOUNT_STATUS_SHEET_ID はログイン情報用
     ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
-    USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
+    USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM" # 修正済みID
+    
+    # GCSの設定
+    GCS_BUCKET_NAME = "auto-poster-images"
 
     SHEET_NAMES = st.secrets["sheet_names"]
     POSTING_ACCOUNT_SHEETS = {
@@ -21,11 +25,11 @@ try:
         "D": "投稿Dアカウント"
     }
     
-    USABLE_DIARY_SHEET = SHEET_NAMES["usable_diary_sheet"]
+    USABLE_DIARY_SHEET = "【使用可能日記文】" # 教えていただいたシート名
     MEDIA_OPTIONS = ["駅ちか", "デリじゃ"]
     POSTING_ACCOUNT_OPTIONS = ["A", "B", "C", "D"] 
     
-    SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+    SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/cloud-platform']
 except KeyError:
     st.error("🚨 secrets.tomlの設定を確認してください。")
     st.stop()
@@ -33,38 +37,40 @@ except KeyError:
 REGISTRATION_HEADERS = ["エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文"]
 INPUT_HEADERS = ["投稿時間", "女の子の名前", "タイトル", "本文"]
 
-# --- 2. Google API連携 ---
+# --- 2. 各種API連携 ---
+
 @st.cache_resource(ttl=3600)
 def connect_to_gsheets(sheet_id):
     client = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
     return client.open_by_key(sheet_id)
 
+@st.cache_resource(ttl=3600)
+def get_gcs_client():
+    return storage.Client.from_service_account_info(st.secrets["gcp_service_account"])
+
 try:
     SPRS = connect_to_gsheets(SHEET_ID)
     STATUS_SPRS = connect_to_gsheets(ACCOUNT_STATUS_SHEET_ID) 
-    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=SCOPES)
-    DRIVE_SERVICE = build('drive', 'v3', credentials=creds)
+    GCS_CLIENT = get_gcs_client()
 except Exception as e:
     st.error(f"❌ API接続失敗: {e}"); st.stop()
 
-# --- Drive 補助関数 ---
-def get_or_create_folder(name, parent_id):
-    query = f"name = '{name}' and mimeType = 'application/vnd.google-apps.folder' and '{parent_id}' in parents and trashed = false"
-    results = DRIVE_SERVICE.files().list(q=query, spaces='drive', fields='files(id, name)', supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
-    files = results.get('files', [])
-    if files: return files[0]['id']
-    meta = {'name': name, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [parent_id]}
-    return DRIVE_SERVICE.files().create(body=meta, fields='id', supportsAllDrives=True).execute().get('id')
-
-def drive_upload_wrapper(uploaded_file, entry, area, store):
-    folder_name = f"デリじゃ {store}" if st.session_state.global_media == "デリじゃ" else store
-    area_id = get_or_create_folder(area, DRIVE_FOLDER_ID)
-    store_id = get_or_create_folder(folder_name, area_id)
-    ext = uploaded_file.name.split('.')[-1]
-    new_name = f"{entry['投稿時間'].strip()}_{entry['女の子の名前'].strip()}.{ext}"
-    media = MediaIoBaseUpload(BytesIO(uploaded_file.getvalue()), mimetype=uploaded_file.type, resumable=True)
-    DRIVE_SERVICE.files().create(body={'name': new_name, 'parents': [store_id]}, media_body=media, supportsAllDrives=True).execute()
-    return True
+# --- GCS 補助関数 (ドライブ関数から差し替え) ---
+def gcs_upload_wrapper(uploaded_file, entry, area, store):
+    try:
+        bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
+        # フォルダ階層の作成
+        folder_name = f"デリじゃ {store}" if st.session_state.global_media == "デリじゃ" else store
+        ext = uploaded_file.name.split('.')[-1]
+        # パス: エリア/店名/時間_名前.拡張子
+        blob_path = f"{area}/{folder_name}/{entry['投稿時間'].strip()}_{entry['女の子の名前'].strip()}.{ext}"
+        
+        blob = bucket.blob(blob_path)
+        blob.upload_from_string(uploaded_file.getvalue(), content_type=uploaded_file.type)
+        return True
+    except Exception as e:
+        st.error(f"❌ GCSアップロード失敗: {e}")
+        return False
 
 # --- 3. UI 構築 ---
 st.set_page_config(layout="wide", page_title="写メ日記投稿管理")
@@ -80,26 +86,22 @@ tab1, tab2, tab3 = st.tabs(["📝 ① データ登録", "📂 ② 投稿デー�
 with tab1:
     st.header("1️⃣ 新規データ登録")
     
-    # --- 共通入力エリア ---
     c1, c2, c3, c4 = st.columns(4)
     target_acc = c1.selectbox("👤 投稿アカウント", POSTING_ACCOUNT_OPTIONS)
     st.session_state.global_media = c2.selectbox("🌐 媒体", MEDIA_OPTIONS)
     global_area = c3.text_input("📍 エリア")
     global_store = c4.text_input("🏢 店名")
 
-    # --- ログイン情報（アカウント登録用） ---
     st.markdown("---")
     st.subheader("🔑 ログイン情報（アカウント登録用）")
     c5, c6 = st.columns(2)
     login_id = c5.text_input("ID", key="login_id")
-    login_pw = c6.text_input("パスワード", key="login_pw") # type="password"を削除して見えるように
+    login_pw = c6.text_input("パスワード", key="login_pw")
 
-    # --- 投稿内容入力エリア ---
     st.markdown("---")
     st.subheader("📸 投稿内容入力")
     
     with st.form("reg_form"):
-        # ヘッダーラベルを表示
         h_cols = st.columns([1, 1, 2, 3, 2])
         h_cols[0].write("**投稿時間**")
         h_cols[1].write("**女の子の名前**")
@@ -107,7 +109,6 @@ with tab1:
         h_cols[3].write("**本文**")
         h_cols[4].write("**画像**")
 
-        # 40行の入力欄を生成
         for i in range(40):
             cols = st.columns([1, 1, 2, 3, 2])
             st.session_state.diary_entries[i]['投稿時間'] = cols[0].text_input(f"時間{i}", key=f"t_{i}", label_visibility="collapsed")
@@ -118,25 +119,23 @@ with tab1:
         
         if st.form_submit_button("🔥 データを登録する", type="primary"):
             valid_data = [e for e in st.session_state.diary_entries if e['投稿時間'] and e['女の子の名前']]
-            if not valid_data: st.error("投稿内容（時間と名前）を入力してください"); st.stop()
+            if not valid_data: st.error("投稿内容を入力してください"); st.stop()
             
-            # A. 画像アップロード
+            # A. GCSアップロード
             for e in valid_data:
-                if e['img']: drive_upload_wrapper(e['img'], e, global_area, global_store)
+                if e['img']: gcs_upload_wrapper(e['img'], e, global_area, global_store)
             
-            # B. メインシート（投稿内容 A-G列）書き込み
+            # B. メインシート書き込み
             ws_main = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[target_acc])
             rows_main = [[global_area, global_store, st.session_state.global_media, e['投稿時間'], e['女の子の名前'], e['タイトル'], e['本文']] for e in valid_data]
             ws_main.append_rows(rows_main, value_input_option='USER_ENTERED')
             
-            # C. ステータス管理シート（ログイン情報）書き込み
-            # エリア,店名,媒体,ID,PASSWORD
+            # C. ステータス管理シート書き込み
             ws_status = STATUS_SPRS.worksheet(POSTING_ACCOUNT_SHEETS[target_acc])
             status_row = [global_area, global_store, st.session_state.global_media, login_id, login_pw]
             ws_status.append_row(status_row, value_input_option='USER_ENTERED')
             
-            st.success(f"✅ 投稿データ {len(rows_main)} 件とログイン情報を正常に登録しました！")
-
+            st.success(f"✅ 投稿データ {len(rows_main)} 件とログイン情報を GCS およびシートへ登録しました！")
 # =========================================================
 # --- Tab 2: 投稿データ管理 (統合編集) ---
 # =========================================================
@@ -202,4 +201,5 @@ with tab3:
     except Exception as e:
         st.error(f"🚨 読み込みエラー: {e}")
         st.info("スプレッドシートの右上の「共有」ボタンから、サービスアカウントのメールアドレスが追加されているか再度確認してください。")
+
 
