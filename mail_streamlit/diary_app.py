@@ -73,10 +73,10 @@ def gcs_upload_wrapper(uploaded_file, entry, area, store):
 # --- 3. UI 構築 ---
 st.set_page_config(layout="wide", page_title="写メ日記投稿管理")
 
-# --- 余白削除とタブ最大化のカスタムCSS ---
+# --- 余白削除・タブ最大化・見出し固定のカスタムCSS ---
 st.markdown("""
     <style>
-    /* 1. ページ最上部の余白(パディング)を完全に排除 */
+    /* 1. ページ最上部の余白を完全に排除 */
     .block-container {
         padding-top: 0rem !important;
         padding-bottom: 0rem !important;
@@ -84,12 +84,12 @@ st.markdown("""
         padding-right: 1rem !important;
     }
 
-    /* 2. ヘッダー領域(デプロイボタン等の背景)を消去して隙間を埋める */
+    /* 2. ヘッダー領域を消去して隙間を埋める */
     header[data-testid="stHeader"] {
         display: none !important;
     }
 
-    /* 3. タブリストの隙間と高さを調整 */
+    /* 3. タブリストの調整 */
     .stTabs [data-baseweb="tab-list"] {
         gap: 10px;
         height: 80px;
@@ -114,10 +114,15 @@ st.markdown("""
         border-bottom: 5px solid #b33232 !important;
     }
 
-    /* マウスを乗せた時の動き */
-    button[data-baseweb="tab"]:hover {
-        background-color: #e0e2e6 !important;
-        color: #FF4B4B !important;
+    /* 4. 【重要】見出し行を固定する設定 */
+    /* 特定のクラスや構造を狙って固定 */
+    div[data-testid="stForm"] > div[data-testid="stHorizontalBlock"]:first-child {
+        position: sticky;
+        top: 0px; /* タブの中での最上部 */
+        background-color: white;
+        z-index: 999;
+        padding: 10px 0;
+        border-bottom: 3px solid #FF4B4B;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -125,13 +130,13 @@ st.markdown("""
 if 'diary_entries' not in st.session_state:
     st.session_state.diary_entries = [{h: "" for h in INPUT_HEADERS} for _ in range(40)]
 
-# タブ構成の変更
+# タブ構成
 tab1, tab2, tab3, tab4 = st.tabs(["📝 ① データ登録", "📊 ② 店舗アカウント状況", "📂 ③ 投稿データ管理", "📚 ④ 使用可能日記文"])
 
-# 共通データ取得（集計ロジック含む）
+# 共通データ取得（集計ロジック）
 combined_data = []
-acc_summary = {}  # { アカウント: { エリア: {店舗情報} } }
-acc_counts = {}   # { アカウント: 合計件数 }
+acc_summary = {}
+acc_counts = {}
 
 try:
     all_worksheets = SPRS.worksheets()
@@ -146,7 +151,6 @@ try:
                         row_full = [row[j] if j < len(row) else "" for j in range(7)]
                         combined_data.append([acc_code, i + 2] + row_full)
                         
-                        # 集計用
                         area, store, media = str(row[0]).strip(), str(row[1]).strip(), str(row[2]).strip()
                         acc_counts[acc_code] = acc_counts.get(acc_code, 0) + 1
                         
@@ -167,15 +171,22 @@ with tab1:
     global_area = c3.text_input("📍 エリア")
     global_store = c4.text_input("🏢 店名")
     st.markdown("---")
-    st.subheader("🔑 ログイン情報（アカウント登録用）")
+    st.subheader("🔑 ログイン情報")
     c5, c6 = st.columns(2)
     login_id = c5.text_input("ID", key="login_id")
     login_pw = c6.text_input("パスワード", key="login_pw")
     st.markdown("---")
+    
     st.subheader("📸 投稿内容入力")
     with st.form("reg_form"):
+        # スクロールしてもついてくる見出し行
         h_cols = st.columns([1, 1, 2, 3, 2])
-        h_cols[0].write("**投稿時間**"); h_cols[1].write("**女の子の名前**"); h_cols[2].write("**タイトル**"); h_cols[3].write("**本文**"); h_cols[4].write("**画像**")
+        h_cols[0].markdown("**投稿時間**")
+        h_cols[1].markdown("**女の子の名前**")
+        h_cols[2].markdown("**タイトル**")
+        h_cols[3].markdown("**本文**")
+        h_cols[4].markdown("**画像**")
+
         for i in range(40):
             cols = st.columns([1, 1, 2, 3, 2])
             st.session_state.diary_entries[i]['投稿時間'] = cols[0].text_input(f"時間{i}", key=f"t_{i}", label_visibility="collapsed")
@@ -183,6 +194,7 @@ with tab1:
             st.session_state.diary_entries[i]['タイトル'] = cols[2].text_area(f"題{i}", key=f"ti_{i}", height=68, label_visibility="collapsed")
             st.session_state.diary_entries[i]['本文'] = cols[3].text_area(f"本{i}", key=f"b_{i}", height=68, label_visibility="collapsed")
             st.session_state.diary_entries[i]['img'] = cols[4].file_uploader(f"画{i}", key=f"img_{i}", label_visibility="collapsed")
+        
         if st.form_submit_button("🔥 データを登録する", type="primary"):
             valid_data = [e for e in st.session_state.diary_entries if e['投稿時間'] and e['女の子の名前']]
             if not valid_data: st.error("入力してください"); st.stop()
@@ -195,7 +207,6 @@ with tab1:
             status_row = [global_area, global_store, st.session_state.global_media, login_id, login_pw]
             ws_status.append_row(status_row, value_input_option='USER_ENTERED')
             st.success("✅ 登録完了！")
-
 # =========================================================
 # --- Tab 2: 📊 全アカウント店舗アカウント状況 ---
 # =========================================================
@@ -287,6 +298,7 @@ with tab4:
         if len(tmp_data) > 1:
             st.dataframe(pd.DataFrame(tmp_data[1:], columns=tmp_data[0]), use_container_width=True, height=600)
     except Exception as e: st.error(f"読み込みエラー: {e}")
+
 
 
 
