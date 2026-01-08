@@ -172,70 +172,105 @@ with tab1:
             
             st.success(f"✅ 投稿データ {len(rows_main)} 件とログイン情報を GCS およびシートへ登録しました！")
 # =========================================================
-# --- Tab 2: 投稿データ管理 (詳細診断付き) ---
+# --- Tab 2: 投稿データ管理 (UI/UX 強化版) ---
 # =========================================================
 with tab2:
-    st.header("2️⃣ 投稿データ管理 (全アカウント統合編集)")
+    st.markdown("### 📊 全アカウント稼働状況")
     
     combined_data = []
-    debug_logs = []
+    summary_stats = [] # 概要表示用のリスト
 
     try:
-        # スプレッドシート内の全シートを一括取得
         all_worksheets = SPRS.worksheets()
         ws_dict = {ws.title: ws for ws in all_worksheets}
 
-        for acc_code, sheet_name in POSTING_ACCOUNT_SHEETS.items():
-            if sheet_name in ws_dict:
-                ws = ws_dict[sheet_name]
-                raw_data = ws.get_all_values()
-                
-                if len(raw_data) > 1:
-                    added_count = 0
-                    # エリア・店名・媒体の組み合わせを保存するセット（重複排除用）
-                    store_info_set = set()
+        # 4つのアカウントを横並びのカードで表示するためのカラム
+        cols = st.columns(len(POSTING_ACCOUNT_OPTIONS))
+
+        for idx, (acc_code, sheet_name) in enumerate(POSTING_ACCOUNT_SHEETS.items()):
+            with cols[idx]:
+                if sheet_name in ws_dict:
+                    ws = ws_dict[sheet_name]
+                    raw_data = ws.get_all_values()
                     
-                    for i, row in enumerate(raw_data[1:]):
-                        if any(str(cell).strip() for cell in row[:7]):
-                            row_full = [row[j] if j < len(row) else "" for j in range(7)]
-                            combined_data.append([acc_code, i + 2] + row_full)
-                            added_count += 1
-                            
-                            # 診断用に情報を抽出 (エリア: row[0], 店名: row[1], 媒体: row[2])
-                            area = str(row[0]).strip()
-                            store = str(row[1]).strip()
-                            media = str(row[2]).strip()
-                            if area or store or media:
-                                store_info_set.add(f"{area}:{media} {store}")
-                    
-                    # 情報を整形（例：石巻:駅ちか 近所の奥さん）
-                    info_str = " / ".join(store_info_set) if store_info_set else "詳細情報なし"
-                    debug_logs.append(f"✅ {acc_code}({sheet_name}): {added_count}件取得 [{info_str}]")
+                    if len(raw_data) > 1:
+                        added_count = 0
+                        store_info_set = set()
+                        
+                        for i, row in enumerate(raw_data[1:]):
+                            if any(str(cell).strip() for cell in row[:7]):
+                                row_full = [row[j] if j < len(row) else "" for j in range(7)]
+                                combined_data.append([acc_code, i + 2] + row_full)
+                                added_count += 1
+                                # 診断用情報抽出
+                                area = str(row[0]).strip()
+                                store = str(row[1]).strip()
+                                media = str(row[2]).strip()
+                                if area or store or media:
+                                    store_info_set.add(f"{area} / {media}\n{store}")
+                        
+                        # --- カード型UIの表示 ---
+                        st.metric(label=f"アカウント {acc_code}", value=f"{added_count} 件")
+                        for info in store_info_set:
+                            st.caption(f"📍 {info}")
+                        st.markdown("---")
+                    else:
+                        st.metric(label=f"アカウント {acc_code}", value="0 件", delta="データなし", delta_color="off")
                 else:
-                    debug_logs.append(f"⚠️ {acc_code}({sheet_name}): データなし")
-            else:
-                debug_logs.append(f"❌ {acc_code}: シート「{sheet_name}」が見つかりません")
-                
+                    st.error(f"{acc_code}: 未接続")
+
     except Exception as e:
         if "429" in str(e):
-            st.error("🚨 API制限に達しました。1分ほど待ってから再読み込みしてください。")
+            st.error("🚨 API制限中：1分ほど待機してください")
         else:
-            st.error(f"❌ 読み込みエラー: {e}")
+            st.error(f"❌ エラー: {e}")
 
-    # アップデートした「各投稿データ数を確認」
-    with st.expander("📊 各投稿データ数を確認"):
-        for log in debug_logs:
-            st.write(log)
-
+    # --- 編集エリア ---
+    st.markdown("---")
+    st.subheader("📝 投稿データの一括編集")
+    
     if combined_data:
-        # --- (データフレーム表示・保存ボタンのロジックは以前と同様) ---
         df = pd.DataFrame(combined_data, columns=["アカウント", "行番号"] + REGISTRATION_HEADERS)
-        edited_df = st.data_editor(df, key="main_editor", use_container_width=True, hide_index=True, disabled=["アカウント", "行番号"], height=600)
         
-        if st.button("💾 変更内容をスプレッドシートに反映する", type="primary"):
-            # ... (保存ロジック)
-            st.success("🎉 更新しました！")
-            st.rerun()
+        # テーブルを見やすくするための設定
+        edited_df = st.data_editor(
+            df, 
+            key="main_editor", 
+            use_container_width=True, 
+            hide_index=True, 
+            disabled=["アカウント", "行番号"], 
+            height=600,
+            column_config={
+                "アカウント": st.column_config.TextColumn("👤", width="small"),
+                "エリア": st.column_config.TextColumn("📍 エリア", width="small"),
+                "媒体": st.column_config.SelectboxColumn("🌐 媒体", options=MEDIA_OPTIONS, width="small"),
+                "投稿時間": st.column_config.TextColumn("⏰ 時間", width="small"),
+                "女の子の名前": st.column_config.TextColumn("👩 名前", width="medium"),
+                "タイトル": st.column_config.TextColumn("📄 タイトル", width="medium"),
+                "本文": st.column_config.TextColumn("📝 本文", width="large"),
+            }
+        )
+
+        # 保存ボタンを巨大かつ中央寄りに配置
+        left, mid, right = st.columns([1, 2, 1])
+        with mid:
+            if st.button("🔥 変更内容をスプレッドシートに一括反映する", type="primary", use_container_width=True):
+                with st.spinner("保存中..."):
+                    try:
+                        for acc_code in POSTING_ACCOUNT_OPTIONS:
+                            target_rows = edited_df[edited_df["アカウント"] == acc_code]
+                            if target_rows.empty: continue
+                            ws = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[acc_code])
+                            for _, row in target_rows.iterrows():
+                                row_idx = int(row["行番号"])
+                                new_values = [str(row[h]) for h in REGISTRATION_HEADERS]
+                                ws.update(f"A{row_idx}:G{row_idx}", [new_values], value_input_option='USER_ENTERED')
+                        st.success("🎉 更新完了！")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"更新エラー: {e}")
+    else:
+        st.info("現在、編集可能なデータはありません。")
 # =========================================================
 # --- Tab 3: テンプレート全文表示 (確定版) ---
 # =========================================================
@@ -264,6 +299,7 @@ with tab3:
     except Exception as e:
         st.error(f"🚨 読み込みエラー: {e}")
         st.info("スプレッドシートの右上の「共有」ボタンから、サービスアカウントのメールアドレスが追加されているか再度確認してください。")
+
 
 
 
