@@ -10,7 +10,6 @@ from googleapiclient.http import MediaIoBaseUpload
 try:
     SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"] 
     DRIVE_FOLDER_ID = st.secrets["google_resources"]["drive_folder_id"] 
-    # ステータス・ログイン情報管理用シートID
     ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
     USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODTSS53beqM"
 
@@ -26,20 +25,15 @@ try:
     MEDIA_OPTIONS = ["駅ちか", "デリじゃ"]
     POSTING_ACCOUNT_OPTIONS = ["A", "B", "C", "D"] 
     
-    SCOPES = [
-        'https://www.googleapis.com/auth/spreadsheets',
-        'https://www.googleapis.com/auth/drive'
-    ]
+    SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 except KeyError:
     st.error("🚨 secrets.tomlの設定を確認してください。")
     st.stop()
 
-# ヘッダー定義
 REGISTRATION_HEADERS = ["エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文"]
 INPUT_HEADERS = ["投稿時間", "女の子の名前", "タイトル", "本文"]
 
-# --- 2. Google API連携関数 ---
-
+# --- 2. Google API連携 ---
 @st.cache_resource(ttl=3600)
 def connect_to_gsheets(sheet_id):
     client = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
@@ -47,15 +41,13 @@ def connect_to_gsheets(sheet_id):
 
 try:
     SPRS = connect_to_gsheets(SHEET_ID)
-    # ステータス管理用スプレッドシートへの接続
     STATUS_SPRS = connect_to_gsheets(ACCOUNT_STATUS_SHEET_ID) 
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=SCOPES)
     DRIVE_SERVICE = build('drive', 'v3', credentials=creds)
 except Exception as e:
-    st.error(f"❌ API接続失敗: {e}")
-    st.stop()
+    st.error(f"❌ API接続失敗: {e}"); st.stop()
 
-# --- Drive 補助関数 (画像アップロード用) ---
+# --- Drive 補助関数 ---
 def get_or_create_folder(name, parent_id):
     query = f"name = '{name}' and mimeType = 'application/vnd.google-apps.folder' and '{parent_id}' in parents and trashed = false"
     results = DRIVE_SERVICE.files().list(q=query, spaces='drive', fields='files(id, name)', supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
@@ -83,7 +75,7 @@ if 'diary_entries' not in st.session_state:
 tab1, tab2, tab3 = st.tabs(["📝 ① データ登録", "📂 ② 投稿データ管理", "📚 ③ 日記全文表示"])
 
 # =========================================================
-# --- Tab 1: データ登録 (機能追加版) ---
+# --- Tab 1: データ登録 ---
 # =========================================================
 with tab1:
     st.header("1️⃣ 新規データ登録")
@@ -95,51 +87,62 @@ with tab1:
     global_area = c3.text_input("📍 エリア")
     global_store = c4.text_input("🏢 店名")
 
-    # --- ID/PASSWORD入力エリア (新規追加) ---
-    st.markdown("🔑 **ログイン情報（ステータス管理用）**")
+    # --- ログイン情報（アカウント登録用） ---
+    st.markdown("---")
+    st.subheader("🔑 ログイン情報（アカウント登録用）")
     c5, c6 = st.columns(2)
-    login_id = c5.text_input("ユーザーID / メールアドレス", key="login_id")
-    login_pw = c6.text_input("パスワード", key="login_pw", type="password")
+    login_id = c5.text_input("ID", key="login_id")
+    login_pw = c6.text_input("パスワード", key="login_pw") # type="password"を削除して見えるように
 
+    # --- 投稿内容入力エリア ---
+    st.markdown("---")
+    st.subheader("📸 投稿内容入力")
+    
     with st.form("reg_form"):
-        st.write("📸 投稿内容入力")
+        # ヘッダーラベルを表示
+        h_cols = st.columns([1, 1, 2, 3, 2])
+        h_cols[0].write("**投稿時間**")
+        h_cols[1].write("**名**")
+        h_cols[2].write("**タイトル**")
+        h_cols[3].write("**本文**")
+        h_cols[4].write("**画像**")
+
+        # 40行の入力欄を生成
         for i in range(40):
             cols = st.columns([1, 1, 2, 3, 2])
-            st.session_state.diary_entries[i]['投稿時間'] = cols[0].text_input("時間", key=f"t_{i}", label_visibility="collapsed")
-            st.session_state.diary_entries[i]['女の子の名前'] = cols[1].text_input("名", key=f"n_{i}", label_visibility="collapsed")
-            st.session_state.diary_entries[i]['タイトル'] = cols[2].text_area("題", key=f"ti_{i}", height=50, label_visibility="collapsed")
-            st.session_state.diary_entries[i]['本文'] = cols[3].text_area("本", key=f"b_{i}", height=50, label_visibility="collapsed")
-            st.session_state.diary_entries[i]['img'] = cols[4].file_uploader("画", key=f"img_{i}", label_visibility="collapsed")
+            st.session_state.diary_entries[i]['投稿時間'] = cols[0].text_input(f"時間{i}", key=f"t_{i}", label_visibility="collapsed")
+            st.session_state.diary_entries[i]['女の子の名前'] = cols[1].text_input(f"名{i}", key=f"n_{i}", label_visibility="collapsed")
+            st.session_state.diary_entries[i]['タイトル'] = cols[2].text_area(f"題{i}", key=f"ti_{i}", height=68, label_visibility="collapsed")
+            st.session_state.diary_entries[i]['本文'] = cols[3].text_area(f"本{i}", key=f"b_{i}", height=68, label_visibility="collapsed")
+            st.session_state.diary_entries[i]['img'] = cols[4].file_uploader(f"画{i}", key=f"img_{i}", label_visibility="collapsed")
         
         if st.form_submit_button("🔥 データを登録する", type="primary"):
             valid_data = [e for e in st.session_state.diary_entries if e['投稿時間'] and e['女の子の名前']]
-            if not valid_data: st.error("投稿内容を入力してください"); st.stop()
+            if not valid_data: st.error("投稿内容（時間と名前）を入力してください"); st.stop()
             
             # A. 画像アップロード
             for e in valid_data:
                 if e['img']: drive_upload_wrapper(e['img'], e, global_area, global_store)
             
-            # B. メインシート（投稿内容）書き込み
+            # B. メインシート（投稿内容 A-G列）書き込み
             ws_main = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[target_acc])
             rows_main = [[global_area, global_store, st.session_state.global_media, e['投稿時間'], e['女の子の名前'], e['タイトル'], e['本文']] for e in valid_data]
             ws_main.append_rows(rows_main, value_input_option='USER_ENTERED')
             
-            # C. ステータス管理シート（ログイン情報）書き込み (新規追加)
-            # 指定された順序: エリア, 店名, 媒体, ID, PASSWORD
+            # C. ステータス管理シート（ログイン情報）書き込み
+            # エリア,店名,媒体,ID,PASSWORD
             ws_status = STATUS_SPRS.worksheet(POSTING_ACCOUNT_SHEETS[target_acc])
             status_row = [global_area, global_store, st.session_state.global_media, login_id, login_pw]
             ws_status.append_row(status_row, value_input_option='USER_ENTERED')
             
-            st.success(f"✅ 投稿データ{len(rows_main)}件とログイン情報を登録しました！")
+            st.success(f"✅ 投稿データ {len(rows_main)} 件とログイン情報を正常に登録しました！")
 
 # =========================================================
-# --- Tab 2: 投稿データ管理 (統合編集機能) ---
+# --- Tab 2: 投稿データ管理 (統合編集) ---
 # =========================================================
 with tab2:
     st.header("2️⃣ 投稿データ管理 (全アカウント統合編集)")
-    st.info("💡 投稿内容のみ編集可能です。ログイン情報はステータス管理シートを確認してください。")
-
-    # データ読み込みとフィルタリング
+    
     combined_data = []
     for acc_code, sheet_name in POSTING_ACCOUNT_SHEETS.items():
         try:
@@ -166,11 +169,11 @@ with tab2:
                             row_idx = int(row["行番号"])
                             new_values = [str(row[h]) for h in REGISTRATION_HEADERS]
                             ws.update(f"A{row_idx}:G{row_idx}", [new_values], value_input_option='USER_ENTERED')
-                    st.success("🎉 変更が反映されました！")
+                    st.success("🎉 スプレッドシートを更新しました！")
                 except Exception as e:
                     st.error(f"❌ 更新エラー: {e}")
     else:
-        st.info("現在、登録されているデータはありません。")
+        st.info("登録されているデータはありません。")
 # =========================================================
 # --- Tab 3: テンプレート全文表示 ---
 # =========================================================
@@ -183,5 +186,6 @@ with tab3:
         if len(tmp_data) > 1:
             st.dataframe(pd.DataFrame(tmp_data[1:], columns=tmp_data[0]), use_container_width=True)
     except: st.warning("テンプレート読み込み失敗")
+
 
 
