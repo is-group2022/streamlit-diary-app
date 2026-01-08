@@ -775,3 +775,4 @@ with tab3:
     except Exception as e:
         st.error(f"❌ テンプレートデータの読み込みエラー: {e}")
         st.warning("⚠️ Google Sheets の設定を確認してください。")
+
