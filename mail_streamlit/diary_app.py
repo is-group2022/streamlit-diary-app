@@ -155,20 +155,65 @@ with tab1:
             ws_status.append_row(status_row, value_input_option='USER_ENTERED')
             st.success("✅ 登録完了！")
 
+申し訳ありません、おっしゃる通り各アカウントの中でエリアがバラバラに表示されると非常に管理しづらいですね。
+
+**「アカウントごとに枠を作り、その中でエリアごとに店舗をグループ化する」**という形にUIを修正しました。これにより、どのアカウントがどのエリアでどの店を管理しているかが一目で分かります。
+
+修正版：Tab 2（アカウント別・エリア集計UI）
+このコードを Tab 2 の部分に上書きしてください。
+
+Python
+
 # =========================================================
 # --- Tab 2: 📊 全アカウント店舗アカウント状況 ---
 # =========================================================
 with tab2:
     st.markdown("## 📊 全アカウント店舗アカウント状況")
-    if area_summary:
-        area_cols = st.columns(len(area_summary))
-        for i, (area_name, shops) in enumerate(area_summary.items()):
-            with area_cols[i % len(area_summary)]:
-                st.info(f"📍 **{area_name}**")
-                for shop in shops:
-                    st.write(f"└ {shop}")
+    
+    # データをアカウントごとに整理する辞書
+    # 構造: { "A": { "石巻": {"店A", "店B"}, "仙台": {"店C"} }, "B": ... }
+    acc_summary = {}
+
+    if combined_data:
+        # 取得済みの combined_data から構造化データを生成
+        for row in combined_data:
+            acc_code = row[0]
+            area = str(row[2]).strip()   # エリア
+            store = str(row[3]).strip()  # 店名
+            media = str(row[4]).strip()  # 媒体
+            
+            if acc_code not in acc_summary:
+                acc_summary[acc_code] = {}
+            
+            if area not in acc_summary[acc_code]:
+                acc_summary[acc_code][area] = set()
+            
+            acc_summary[acc_code][area].add(f"{media} : {store}")
+
+        # アカウントごとに表示
+        for acc_code in POSTING_ACCOUNT_OPTIONS:
+            if acc_code in acc_summary:
+                with st.container():
+                    # アカウント名を強調
+                    st.markdown(f"### 👤 投稿{acc_code}アカウント")
+                    
+                    # そのアカウント内のエリアを横並び、または整理して表示
+                    areas = acc_summary[acc_code]
+                    area_cols = st.columns(len(areas) if len(areas) > 0 else 1)
+                    
+                    for idx, (area_name, shops) in enumerate(areas.items()):
+                        with area_cols[idx]:
+                            # エリアごとにカード状に表示
+                            st.info(f"📍 **{area_name}**")
+                            for shop in sorted(shops):
+                                st.write(f"　└ {shop}")
+                    st.markdown("---") # アカウントごとの区切り線
+            else:
+                st.markdown(f"### 👤 投稿{acc_code}アカウント")
+                st.caption("稼働データなし")
+                st.markdown("---")
     else:
-        st.info("現在稼働中の店舗データはありません。")
+        st.info("現在稼働中のデータはありません。")
 
 # =========================================================
 # --- Tab 3: 📂 投稿データ管理 ---
@@ -206,3 +251,4 @@ with tab4:
         if len(tmp_data) > 1:
             st.dataframe(pd.DataFrame(tmp_data[1:], columns=tmp_data[0]), use_container_width=True, height=600)
     except Exception as e: st.error(f"読み込みエラー: {e}")
+
