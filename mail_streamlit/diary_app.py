@@ -73,30 +73,24 @@ def gcs_upload_wrapper(uploaded_file, entry, area, store):
 # --- 3. UI 構築 ---
 st.set_page_config(layout="wide", page_title="写メ日記投稿管理")
 
-# --- 余白削除・タブ最大化・見出し固定のカスタムCSS ---
 st.markdown("""
     <style>
-    /* 1. ページ最上部の余白を完全に排除 */
+    /* 1. ページ全体の余白削除 */
     .block-container {
         padding-top: 0rem !important;
         padding-bottom: 0rem !important;
         padding-left: 1rem !important;
         padding-right: 1rem !important;
     }
-
-    /* 2. ヘッダー領域を消去して隙間を埋める */
     header[data-testid="stHeader"] {
         display: none !important;
     }
 
-    /* 3. タブリストの調整 */
+    /* 2. タブリストのデザイン */
     .stTabs [data-baseweb="tab-list"] {
         gap: 10px;
         height: 80px;
-        padding-top: 0px !important;
     }
-
-    /* 各タブのスタイル */
     button[data-baseweb="tab"] {
         font-size: 32px !important;
         font-weight: 800 !important;
@@ -106,23 +100,22 @@ st.markdown("""
         border-radius: 10px 10px 0px 0px !important;
         margin-right: 5px !important;
     }
-
-    /* 選択されているタブのスタイル */
     button[data-baseweb="tab"][aria-selected="true"] {
         color: white !important;
         background-color: #FF4B4B !important;
         border-bottom: 5px solid #b33232 !important;
     }
 
-    /* 4. 【重要】見出し行を固定する設定 */
-    /* 特定のクラスや構造を狙って固定 */
-    div[data-testid="stForm"] > div[data-testid="stHorizontalBlock"]:first-child {
+    /* 3. 固定見出しの設定 */
+    .sticky-header {
+        position: -webkit-sticky;
         position: sticky;
-        top: 0px; /* タブの中での最上部 */
+        top: 0px;
+        z-index: 1000;
         background-color: white;
-        z-index: 999;
-        padding: 10px 0;
-        border-bottom: 3px solid #FF4B4B;
+        padding: 15px 0;
+        border-bottom: 4px solid #FF4B4B;
+        margin-bottom: 10px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -133,9 +126,9 @@ if 'diary_entries' not in st.session_state:
 # タブ構成
 tab1, tab2, tab3, tab4 = st.tabs(["📝 ① データ登録", "📊 ② 店舗アカウント状況", "📂 ③ 投稿データ管理", "📚 ④ 使用可能日記文"])
 
-# 共通データ取得（集計ロジック）
+# --- 共通データ取得（Tab2, Tab3用） ---
 combined_data = []
-acc_summary = {}
+acc_summary = {} 
 acc_counts = {}
 
 try:
@@ -150,14 +143,11 @@ try:
                     if any(str(cell).strip() for cell in row[:7]):
                         row_full = [row[j] if j < len(row) else "" for j in range(7)]
                         combined_data.append([acc_code, i + 2] + row_full)
-                        
                         area, store, media = str(row[0]).strip(), str(row[1]).strip(), str(row[2]).strip()
                         acc_counts[acc_code] = acc_counts.get(acc_code, 0) + 1
-                        
                         if acc_code not in acc_summary: acc_summary[acc_code] = {}
                         if area not in acc_summary[acc_code]: acc_summary[acc_code][area] = set()
-                        if area or store or media:
-                            acc_summary[acc_code][area].add(f"{media} : {store}")
+                        acc_summary[acc_code][area].add(f"{media} : {store}")
 except: pass
 
 # =========================================================
@@ -176,17 +166,22 @@ with tab1:
     login_id = c5.text_input("ID", key="login_id")
     login_pw = c6.text_input("パスワード", key="login_pw")
     st.markdown("---")
-    
     st.subheader("📸 投稿内容入力")
-    with st.form("reg_form"):
-        # スクロールしてもついてくる見出し行
-        h_cols = st.columns([1, 1, 2, 3, 2])
-        h_cols[0].markdown("**投稿時間**")
-        h_cols[1].markdown("**女の子の名前**")
-        h_cols[2].markdown("**タイトル**")
-        h_cols[3].markdown("**本文**")
-        h_cols[4].markdown("**画像**")
 
+    # 固定見出し
+    st.markdown("""
+        <div class="sticky-header">
+            <div style="display: flex; flex-direction: row; align-items: center;">
+                <div style="flex: 1; font-weight: bold; font-size: 18px; padding-left: 10px;">投稿時間</div>
+                <div style="flex: 1; font-weight: bold; font-size: 18px;">名前</div>
+                <div style="flex: 2; font-weight: bold; font-size: 18px;">タイトル</div>
+                <div style="flex: 3; font-weight: bold; font-size: 18px;">本文</div>
+                <div style="flex: 2; font-weight: bold; font-size: 18px;">画像</div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    with st.form("reg_form"):
         for i in range(40):
             cols = st.columns([1, 1, 2, 3, 2])
             st.session_state.diary_entries[i]['投稿時間'] = cols[0].text_input(f"時間{i}", key=f"t_{i}", label_visibility="collapsed")
@@ -195,7 +190,7 @@ with tab1:
             st.session_state.diary_entries[i]['本文'] = cols[3].text_area(f"本{i}", key=f"b_{i}", height=68, label_visibility="collapsed")
             st.session_state.diary_entries[i]['img'] = cols[4].file_uploader(f"画{i}", key=f"img_{i}", label_visibility="collapsed")
         
-        if st.form_submit_button("🔥 データを登録する", type="primary"):
+        if st.form_submit_button("🔥 データを登録する", type="primary", use_container_width=True):
             valid_data = [e for e in st.session_state.diary_entries if e['投稿時間'] and e['女の子の名前']]
             if not valid_data: st.error("入力してください"); st.stop()
             for e in valid_data:
@@ -298,6 +293,7 @@ with tab4:
         if len(tmp_data) > 1:
             st.dataframe(pd.DataFrame(tmp_data[1:], columns=tmp_data[0]), use_container_width=True, height=600)
     except Exception as e: st.error(f"読み込みエラー: {e}")
+
 
 
 
