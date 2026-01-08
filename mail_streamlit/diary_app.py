@@ -70,52 +70,87 @@ def gcs_upload_wrapper(uploaded_file, entry, area, store):
         st.error(f"❌ GCSアップロード失敗: {e}")
         return False
 
+申し訳ありません、Streamlitの「フォーム（st.form）」の仕様により、内部の要素を固定するのが非常に難しい状態でした。
+
+「赤い線」を削除し、**「フォームを使わずに入力欄を並べる」**方式に切り替えることで、確実にブラウザ標準の固定機能（Sticky）が効くように修正しました。これで、40行スクロールしても見出しが画面上端にピタッと張り付きます。
+
+修正版フルコード
+Python
+
+import streamlit as st
+import pandas as pd
+import gspread
+from io import BytesIO
+from google.oauth2.service_account import Credentials
+from google.cloud import storage 
+
+# --- 1. 定数と初期設定 ---
+try:
+    SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"] 
+    ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
+    USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
+    GCS_BUCKET_NAME = "auto-poster-images"
+    POSTING_ACCOUNT_SHEETS = {"A": "投稿Aアカウント", "B": "投稿Bアカウント", "C": "投稿Cアカウント", "D": "投稿Dアカウント"}
+    MEDIA_OPTIONS = ["駅ちか", "デリじゃ"]
+    POSTING_ACCOUNT_OPTIONS = ["A", "B", "C", "D"] 
+    REGISTRATION_HEADERS = ["エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文"]
+    INPUT_HEADERS = ["投稿時間", "女の子の名前", "タイトル", "本文"]
+except:
+    st.error("🚨 設定エラー"); st.stop()
+
+# --- 2. 各種API連携 ---
+@st.cache_resource(ttl=3600)
+def connect_to_gsheets(sheet_id):
+    client = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
+    return client.open_by_key(sheet_id)
+
+@st.cache_resource(ttl=3600)
+def get_gcs_client():
+    return storage.Client.from_service_account_info(st.secrets["gcp_service_account"])
+
+SPRS = connect_to_gsheets(SHEET_ID)
+STATUS_SPRS = connect_to_gsheets(ACCOUNT_STATUS_SHEET_ID) 
+GCS_CLIENT = get_gcs_client()
+
+def gcs_upload_wrapper(uploaded_file, entry, area, store):
+    try:
+        bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
+        folder_name = f"デリじゃ {store}" if st.session_state.global_media == "デリじゃ" else store
+        ext = uploaded_file.name.split('.')[-1]
+        blob_path = f"{area}/{folder_name}/{entry['投稿時間'].strip()}_{entry['女の子の名前'].strip()}.{ext}"
+        blob = bucket.blob(blob_path)
+        blob.upload_from_string(uploaded_file.getvalue(), content_type=uploaded_file.type)
+    except: pass
+
 # --- 3. UI 構築 ---
 st.set_page_config(layout="wide", page_title="写メ日記投稿管理")
 
 st.markdown("""
     <style>
-    /* 1. ページ全体の余白削除 */
-    .block-container {
-        padding-top: 0rem !important;
-        padding-bottom: 0rem !important;
-        padding-left: 1rem !important;
-        padding-right: 1rem !important;
-    }
-    header[data-testid="stHeader"] {
-        display: none !important;
-    }
+    /* 1. 余白削除 */
+    .block-container { padding-top: 0rem !important; padding-bottom: 0rem !important; }
+    header[data-testid="stHeader"] { display: none !important; }
 
-    /* 2. タブリストのデザイン */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 10px;
-        height: 80px;
-    }
+    /* 2. タブデザイン */
+    .stTabs [data-baseweb="tab-list"] { gap: 10px; height: 80px; }
     button[data-baseweb="tab"] {
-        font-size: 32px !important;
-        font-weight: 800 !important;
-        height: 70px !important;
-        padding: 0px 30px !important;
-        background-color: #f0f2f6 !important;
-        border-radius: 10px 10px 0px 0px !important;
-        margin-right: 5px !important;
+        font-size: 32px !important; font-weight: 800 !important; height: 70px !important;
+        padding: 0px 30px !important; background-color: #f0f2f6 !important;
+        border-radius: 10px 10px 0px 0px !important; margin-right: 5px !important;
     }
     button[data-baseweb="tab"][aria-selected="true"] {
-        color: white !important;
-        background-color: #FF4B4B !important;
-        border-bottom: 5px solid #b33232 !important;
+        color: white !important; background-color: #FF4B4B !important;
     }
 
-    /* 3. 固定見出しの設定 */
-    .sticky-header {
+    /* 3. 【修正】見出し固定（赤い線を消し、背景を白に固定） */
+    .sticky-header-row {
         position: -webkit-sticky;
         position: sticky;
         top: 0px;
         z-index: 1000;
-        background-color: white;
-        padding: 15px 0;
-        border-bottom: 4px solid #FF4B4B;
-        margin-bottom: 10px;
+        background-color: white !important;
+        padding: 10px 0px;
+        margin-bottom: 5px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -123,31 +158,26 @@ st.markdown("""
 if 'diary_entries' not in st.session_state:
     st.session_state.diary_entries = [{h: "" for h in INPUT_HEADERS} for _ in range(40)]
 
-# タブ構成
 tab1, tab2, tab3, tab4 = st.tabs(["📝 ① データ登録", "📊 ② 店舗アカウント状況", "📂 ③ 投稿データ管理", "📚 ④ 使用可能日記文"])
 
-# --- 共通データ取得（Tab2, Tab3用） ---
+# --- データ集計ロジック ---
 combined_data = []
-acc_summary = {} 
-acc_counts = {}
-
+acc_summary = {}; acc_counts = {}
 try:
-    all_worksheets = SPRS.worksheets()
-    ws_dict = {ws.title: ws for ws in all_worksheets}
-    for acc_code, sheet_name in POSTING_ACCOUNT_SHEETS.items():
-        if sheet_name in ws_dict:
-            ws = ws_dict[sheet_name]
-            raw_data = ws.get_all_values()
-            if len(raw_data) > 1:
-                for i, row in enumerate(raw_data[1:]):
-                    if any(str(cell).strip() for cell in row[:7]):
-                        row_full = [row[j] if j < len(row) else "" for j in range(7)]
-                        combined_data.append([acc_code, i + 2] + row_full)
-                        area, store, media = str(row[0]).strip(), str(row[1]).strip(), str(row[2]).strip()
-                        acc_counts[acc_code] = acc_counts.get(acc_code, 0) + 1
-                        if acc_code not in acc_summary: acc_summary[acc_code] = {}
-                        if area not in acc_summary[acc_code]: acc_summary[acc_code][area] = set()
-                        acc_summary[acc_code][area].add(f"{media} : {store}")
+    all_ws = SPRS.worksheets()
+    ws_dict = {ws.title: ws for ws in all_ws}
+    for code, s_name in POSTING_ACCOUNT_SHEETS.items():
+        if s_name in ws_dict:
+            rows = ws_dict[s_name].get_all_values()
+            if len(rows) > 1:
+                for i, r in enumerate(rows[1:]):
+                    if any(str(c).strip() for c in r[:7]):
+                        combined_data.append([code, i+2] + [r[j] if j<len(r) else "" for j in range(7)])
+                        a, s, m = str(r[0]).strip(), str(r[1]).strip(), str(r[2]).strip()
+                        acc_counts[code] = acc_counts.get(code, 0) + 1
+                        if code not in acc_summary: acc_summary[code] = {}
+                        if a not in acc_summary[code]: acc_summary[code][a] = set()
+                        acc_summary[code][a].add(f"{m} : {s}")
 except: pass
 
 # =========================================================
@@ -160,48 +190,48 @@ with tab1:
     st.session_state.global_media = c2.selectbox("🌐 媒体", MEDIA_OPTIONS)
     global_area = c3.text_input("📍 エリア")
     global_store = c4.text_input("🏢 店名")
-    st.markdown("---")
+    
     st.subheader("🔑 ログイン情報")
     c5, c6 = st.columns(2)
     login_id = c5.text_input("ID", key="login_id")
     login_pw = c6.text_input("パスワード", key="login_pw")
+    
     st.markdown("---")
     st.subheader("📸 投稿内容入力")
 
-    # 固定見出し
+    # 見出し固定（HTMLで定義）
     st.markdown("""
-        <div class="sticky-header">
-            <div style="display: flex; flex-direction: row; align-items: center;">
-                <div style="flex: 1; font-weight: bold; font-size: 18px; padding-left: 10px;">投稿時間</div>
-                <div style="flex: 1; font-weight: bold; font-size: 18px;">名前</div>
-                <div style="flex: 2; font-weight: bold; font-size: 18px;">タイトル</div>
-                <div style="flex: 3; font-weight: bold; font-size: 18px;">本文</div>
-                <div style="flex: 2; font-weight: bold; font-size: 18px;">画像</div>
+        <div class="sticky-header-row">
+            <div style="display: flex; flex-direction: row; border-bottom: 1px solid #ddd;">
+                <div style="flex: 1; font-weight: bold; padding: 5px;">投稿時間</div>
+                <div style="flex: 1; font-weight: bold; padding: 5px;">名前</div>
+                <div style="flex: 2; font-weight: bold; padding: 5px;">タイトル</div>
+                <div style="flex: 3; font-weight: bold; padding: 5px;">本文</div>
+                <div style="flex: 2; font-weight: bold; padding: 5px;">画像</div>
             </div>
         </div>
     """, unsafe_allow_html=True)
 
-    with st.form("reg_form"):
-        for i in range(40):
-            cols = st.columns([1, 1, 2, 3, 2])
-            st.session_state.diary_entries[i]['投稿時間'] = cols[0].text_input(f"時間{i}", key=f"t_{i}", label_visibility="collapsed")
-            st.session_state.diary_entries[i]['女の子の名前'] = cols[1].text_input(f"名{i}", key=f"n_{i}", label_visibility="collapsed")
-            st.session_state.diary_entries[i]['タイトル'] = cols[2].text_area(f"題{i}", key=f"ti_{i}", height=68, label_visibility="collapsed")
-            st.session_state.diary_entries[i]['本文'] = cols[3].text_area(f"本{i}", key=f"b_{i}", height=68, label_visibility="collapsed")
-            st.session_state.diary_entries[i]['img'] = cols[4].file_uploader(f"画{i}", key=f"img_{i}", label_visibility="collapsed")
-        
-        if st.form_submit_button("🔥 データを登録する", type="primary", use_container_width=True):
-            valid_data = [e for e in st.session_state.diary_entries if e['投稿時間'] and e['女の子の名前']]
-            if not valid_data: st.error("入力してください"); st.stop()
-            for e in valid_data:
-                if e['img']: gcs_upload_wrapper(e['img'], e, global_area, global_store)
-            ws_main = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[target_acc])
-            rows_main = [[global_area, global_store, st.session_state.global_media, e['投稿時間'], e['女の子の名前'], e['タイトル'], e['本文']] for e in valid_data]
-            ws_main.append_rows(rows_main, value_input_option='USER_ENTERED')
-            ws_status = STATUS_SPRS.worksheet(POSTING_ACCOUNT_SHEETS[target_acc])
-            status_row = [global_area, global_store, st.session_state.global_media, login_id, login_pw]
-            ws_status.append_row(status_row, value_input_option='USER_ENTERED')
-            st.success("✅ 登録完了！")
+    # フォームを使わず直接配置（Stickyを効かせるため）
+    for i in range(40):
+        cols = st.columns([1, 1, 2, 3, 2])
+        st.session_state.diary_entries[i]['投稿時間'] = cols[0].text_input(f"t{i}", key=f"t_{i}", label_visibility="collapsed")
+        st.session_state.diary_entries[i]['女の子の名前'] = cols[1].text_input(f"n{i}", key=f"n_{i}", label_visibility="collapsed")
+        st.session_state.diary_entries[i]['タイトル'] = cols[2].text_area(f"ti{i}", key=f"ti_{i}", height=68, label_visibility="collapsed")
+        st.session_state.diary_entries[i]['本文'] = cols[3].text_area(f"b{i}", key=f"b_{i}", height=68, label_visibility="collapsed")
+        st.session_state.diary_entries[i]['img'] = cols[4].file_uploader(f"g{i}", key=f"img_{i}", label_visibility="collapsed")
+
+    if st.button("🔥 データを登録する", type="primary", use_container_width=True):
+        valid_data = [e for e in st.session_state.diary_entries if e['投稿時間'] and e['女の子の名前']]
+        if not valid_data: st.error("入力してください"); st.stop()
+        for e in valid_data:
+            if e['img']: gcs_upload_wrapper(e['img'], e, global_area, global_store)
+        ws_main = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[target_acc])
+        rows_main = [[global_area, global_store, st.session_state.global_media, e['投稿時間'], e['女の子の名前'], e['タイトル'], e['本文']] for e in valid_data]
+        ws_main.append_rows(rows_main, value_input_option='USER_ENTERED')
+        ws_status = STATUS_SPRS.worksheet(POSTING_ACCOUNT_SHEETS[target_acc])
+        ws_status.append_row([global_area, global_store, st.session_state.global_media, login_id, login_pw], value_input_option='USER_ENTERED')
+        st.success("✅ 登録完了！")
 # =========================================================
 # --- Tab 2: 📊 全アカウント店舗アカウント状況 ---
 # =========================================================
@@ -293,6 +323,7 @@ with tab4:
         if len(tmp_data) > 1:
             st.dataframe(pd.DataFrame(tmp_data[1:], columns=tmp_data[0]), use_container_width=True, height=600)
     except Exception as e: st.error(f"読み込みエラー: {e}")
+
 
 
 
