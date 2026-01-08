@@ -172,38 +172,72 @@ with tab1:
             
             st.success(f"✅ 投稿データ {len(rows_main)} 件とログイン情報を GCS およびシートへ登録しました！")
 # =========================================================
-# --- Tab 2: 投稿データ管理 (統合編集) ---
+# --- Tab 2: 投稿データ管理 (診断ログ付き) ---
 # =========================================================
 with tab2:
     st.header("2️⃣ 投稿データ管理 (全アカウント統合編集)")
     
     combined_data = []
+    debug_logs = [] # どこで止まっているか確認するためのログ
+
     for acc_code, sheet_name in POSTING_ACCOUNT_SHEETS.items():
         try:
+            # 1. ワークシートの取得を試行
             ws = SPRS.worksheet(sheet_name)
+            # 2. 全データの取得
             raw_data = ws.get_all_values()
+            
             if len(raw_data) > 1:
+                added_count = 0
                 for i, row in enumerate(raw_data[1:]):
-                    if any(cell.strip() for cell in row[:7]):
-                        combined_data.append([acc_code, i + 2] + row[:7])
-        except: continue
+                    # 少なくとも最初の7列のどこかにデータがあるか
+                    if any(str(cell).strip() for cell in row[:7]):
+                        # 列数が足りない場合に備えて長さを調整
+                        row_full = [row[j] if j < len(row) else "" for j in range(7)]
+                        combined_data.append([acc_code, i + 2] + row_full)
+                        added_count += 1
+                debug_logs.append(f"✅ {acc_code}({sheet_name}): {added_count}件取得")
+            else:
+                debug_logs.append(f"⚠️ {acc_code}({sheet_name}): データが空（見出しのみ）")
+                
+        except Exception as e:
+            # エラーを無視せずログに残す
+            debug_logs.append(f"❌ {acc_code}({sheet_name}): エラー -> {str(e)}")
+
+    # 画面上部に読み込み状況を表示（正常なら消してもOK）
+    with st.expander("📊 読み込み状況の詳細を確認"):
+        for log in debug_logs:
+            st.write(log)
 
     if combined_data:
         df = pd.DataFrame(combined_data, columns=["アカウント", "行番号"] + REGISTRATION_HEADERS)
-        edited_df = st.data_editor(df, key="main_editor", use_container_width=True, hide_index=True, disabled=["アカウント", "行番号"], height=600)
+        
+        # 編集画面
+        edited_df = st.data_editor(
+            df, 
+            key="main_editor", 
+            use_container_width=True, 
+            hide_index=True, 
+            disabled=["アカウント", "行番号"], 
+            height=600
+        )
 
         if st.button("💾 変更内容をスプレッドシートに反映する", type="primary"):
             with st.spinner("更新中..."):
                 try:
+                    # 変更があったアカウントを特定して更新
                     for acc_code in POSTING_ACCOUNT_OPTIONS:
                         target_rows = edited_df[edited_df["アカウント"] == acc_code]
                         if target_rows.empty: continue
+                        
                         ws = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[acc_code])
                         for _, row in target_rows.iterrows():
                             row_idx = int(row["行番号"])
                             new_values = [str(row[h]) for h in REGISTRATION_HEADERS]
+                            # アップデート範囲を明示
                             ws.update(f"A{row_idx}:G{row_idx}", [new_values], value_input_option='USER_ENTERED')
                     st.success("🎉 スプレッドシートを更新しました！")
+                    st.rerun() # 更新後に画面をリフレッシュ
                 except Exception as e:
                     st.error(f"❌ 更新エラー: {e}")
     else:
@@ -236,6 +270,7 @@ with tab3:
     except Exception as e:
         st.error(f"🚨 読み込みエラー: {e}")
         st.info("スプレッドシートの右上の「共有」ボタンから、サービスアカウントのメールアドレスが追加されているか再度確認してください。")
+
 
 
 
