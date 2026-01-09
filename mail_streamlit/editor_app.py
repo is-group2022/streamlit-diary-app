@@ -53,85 +53,76 @@ GC, GCS_CLIENT = get_clients()
 SPRS = GC.open_by_key(SHEET_ID)
 
 # --- 4. UI構築 ---
-# initial_sidebar_state="expanded" でサイドバーを最初から開く設定に
-st.set_page_config(
-    layout="wide", 
-    page_title="写メ日記エディタ",
-    initial_sidebar_state="expanded" 
-)
+st.set_page_config(layout="wide", page_title="写メ日記エディタ")
 
 # カスタムCSS
 st.markdown("""
     <style>
-    /* ヘッダーを消す */
     [data-testid="stHeader"] { display: none; }
-    
-    /* サイドバー自体の背景色を少し変えて存在感を出す */
-    [data-testid="stSidebar"] {
-        background-color: #f8f9fa;
-        border-right: 1px solid #e0e0e0;
+    /* 選択パネルのスタイル */
+    .filter-panel {
+        background-color: #f1f3f6;
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 25px;
+        border: 1px solid #d1d5db;
     }
-    
-    /* 本文の入力欄 */
-    .stTextArea textarea { font-size: 14px; line-height: 1.5; }
-    
-    /* カードの区切り */
-    .diary-entry {
+    .stTextArea textarea { font-size: 15px; line-height: 1.6; }
+    .diary-card {
         border-bottom: 2px solid #eee;
-        padding-bottom: 20px;
-        margin-bottom: 20px;
+        padding-bottom: 30px;
+        margin-bottom: 30px;
     }
     </style>
 """, unsafe_allow_html=True)
 
 def main():
-    # サイドバーにすべての選択要素を配置
-    with st.sidebar:
-        st.title("⚙️ 選択パネル")
-        st.info("ここで条件を選んでください")
-        
-        # 1. アカウント選択
-        sel_acc = st.selectbox("👤 投稿アカウント", ACCOUNT_OPTIONS, index=0)
-        
-        # データ取得
-        ws = SPRS.worksheet(SHEET_MAP[sel_acc])
-        data = ws.get_all_values()
-        
-        if len(data) > 1:
-            full_df = pd.DataFrame(data[1:])
-            full_df = full_df.iloc[:, :7]
-            while full_df.shape[1] < 7: full_df[full_df.shape[1]] = ""
-            full_df.columns = DF_COLS
-            full_df['__row__'] = range(2, len(data) + 1)
+    st.title("📸 写メ日記エディタ Pro")
 
-            # 2. エリア選択
-            areas = sorted(full_df["エリア"].unique())
-            sel_area = st.selectbox("📍 エリア", ["未選択"] + areas)
-            
-            sel_store = "未選択"
-            if sel_area != "未選択":
-                # 3. 店舗選択
-                stores = sorted(full_df[full_df["エリア"] == sel_area]["店名"].unique())
-                sel_store = st.selectbox("🏢 店舗", ["未選択"] + stores)
+    # --- メイン画面上部の選択パネル (常に表示) ---
+    st.markdown('<div class="filter-panel">', unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
+    
+    with c1:
+        sel_acc = st.selectbox("👤 アカウント", ACCOUNT_OPTIONS, index=0)
+    
+    # 選択されたアカウントのデータを取得
+    ws = SPRS.worksheet(SHEET_MAP[sel_acc])
+    data = ws.get_all_values()
+    
+    if len(data) <= 1:
+        st.warning("このシートには有効なデータがありません。")
+        return
+        
+    full_df = pd.DataFrame(data[1:])
+    full_df = full_df.iloc[:, :7]
+    while full_df.shape[1] < 7: full_df[full_df.shape[1]] = ""
+    full_df.columns = DF_COLS
+    full_df['__row__'] = range(2, len(data) + 1)
+
+    with c2:
+        areas = sorted(full_df["エリア"].unique())
+        sel_area = st.selectbox("📍 エリア", ["未選択"] + areas)
+    
+    sel_store = "未選択"
+    with c3:
+        if sel_area != "未選択":
+            stores = sorted(full_df[full_df["エリア"] == sel_area]["店名"].unique())
+            sel_store = st.selectbox("🏢 店舗", ["未選択"] + stores)
         else:
-            st.error("シートにデータがありません")
-            return
+            st.selectbox("🏢 店舗", ["エリアを選択してください"], disabled=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    # メイン画面の表示制御
+    # 未選択時のガイド
     if sel_store == "未選択":
-        st.title("📸 写メ日記エディタ Pro")
-        st.warning("👈 左側のサイドバーから「エリア」と「店舗」を選択してください。")
-        st.caption("※サイドバーが閉まっている場合は、左上の「 > 」マークを押して開いてください。")
+        st.info("💡 上記のパネルから「エリア」と「店舗」を選択してください。")
         return
 
-    # --- 以下、選択後のメインコンテンツ ---
-    st.title(f"🏢 {sel_store} の編集")
-    
+    # --- 選択後のメインコンテンツ ---
     target_df = full_df[(full_df["エリア"] == sel_area) & (full_df["店名"] == sel_store)]
     
-    # 統計
-    m_c1, m_c2 = st.columns([1, 3])
-    m_c1.metric("合計件数", f"{len(target_df)} 件")
+    st.subheader(f"📊 {sel_store} (合計: {len(target_df)} 件)")
 
     # GCS画像取得
     bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
@@ -152,9 +143,10 @@ def main():
 
             with col_txt:
                 new_title = st.text_input("タイトル", row["タイトル"], key=f"ti_{idx}")
-                new_body = st.text_area("本文", row["本文"], key=f"bo_{idx}", height=300) # 本文をさらに見やすく
+                # 本文を全文表示 (heightを大きめに設定)
+                new_body = st.text_area("本文", row["本文"], key=f"bo_{idx}", height=350)
                 
-                if st.button("💾 この内容を保存", key=f"sv_{idx}", type="primary"):
+                if st.button("💾 内容を保存", key=f"sv_{idx}", type="primary"):
                     ws.update_cell(row['__row__'], 6, new_title)
                     ws.update_cell(row['__row__'], 7, new_body)
                     st.toast("保存しました！")
@@ -165,7 +157,7 @@ def main():
                         st.image(get_cached_url(m_path), use_container_width=True)
                         with st.popover("🗑️ 削除"):
                             st.write("本当に削除しますか？")
-                            if st.button("実行", key=f"del_{idx}_{m_path}"):
+                            if st.button("実行する", key=f"del_{idx}_{m_path}"):
                                 bucket.blob(m_path).delete()
                                 st.cache_data.clear()
                                 st.rerun()
@@ -184,7 +176,7 @@ def main():
                         st.cache_data.clear()
                         st.rerun()
             
-            st.markdown("<div class='diary-entry'></div>", unsafe_allow_html=True)
+            st.markdown("<div class="diary-card"></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
