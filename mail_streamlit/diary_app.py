@@ -82,13 +82,13 @@ def gcs_upload_wrapper(uploaded_file, entry, area, store):
         st.error(f"❌ GCSアップロード失敗: {e}")
         return False
 
-@st.cache_data(ttl=86400 * 7) # キャッシュ自体も7日間保持
+@st.cache_data(ttl=86400 * 7)
 def get_cached_url(blob_name):
     bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
     blob = bucket.blob(blob_name)
-    # 有効期限を7日間に設定
-    return blob.generate_signed_url(expiration=datetime.timedelta(days=7))
-
+    # timedelta だけで書ける
+    return blob.generate_signed_url(expiration=timedelta(days=7))
+    
 # --- 3. UI 構築 ---
 st.set_page_config(layout="wide", page_title="写メ日記投稿管理")
 
@@ -679,6 +679,7 @@ with tab6:
     else:
         if not show_all: st.info("表示するフォルダを選択してください。")
         else: st.info("画像が見つかりませんでした。")
+
 
 
 
