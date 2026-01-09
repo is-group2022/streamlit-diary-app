@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import gspread
 import zipfile
+import re
 from io import BytesIO
 from google.oauth2.service_account import Credentials
 from google.cloud import storage 
@@ -166,23 +167,139 @@ with tab1:
         ws_status.append_row([global_area, global_store, st.session_state.global_media, login_id, login_pw], value_input_option='USER_ENTERED')
         st.success("✅ 登録完了！")
 
-# --- Tab 2 ---
+# --- Tab 2: 📊 全アカウント店舗アカウント状況 (落ち店移動機能付き) ---
 with tab2:
     st.markdown("## 📊 全アカウント店舗アカウント状況")
+    st.caption("店舗を選択して「落ち店移動」を実行すると、日記文のバックアップ、アカウント紐付け解除、画像移動を自動で行います。")
+
     if combined_data:
+        # 1. 移動対象を選択するためのチェックボックス管理
+        if 'move_to_ochimise' not in st.session_state:
+            st.session_state.move_to_ochimise = {}
+
+        # 2. 各アカウントの状況表示
         for acc_code in POSTING_ACCOUNT_OPTIONS:
             count = acc_counts.get(acc_code, 0)
             st.markdown(f"### 👤 投稿{acc_code}アカウント　`{count} 件`")
+            
             if acc_code in acc_summary:
                 areas = acc_summary[acc_code]
+                # エリアごとにカラムを分ける
                 area_cols = st.columns(len(areas) if len(areas) > 0 else 1)
+                
                 for idx, (area_name, shops) in enumerate(areas.items()):
                     with area_cols[idx]:
                         st.info(f"📍 **{area_name}**")
-                        for shop in sorted(shops): st.write(f"　└ {shop}")
-            else: st.caption("稼働データなし")
+                        for shop in sorted(shops):
+                            # チェックボックスで店舗を選択（キーにアカウント・エリア・店名を含める）
+                            cb_key = f"move_{acc_code}_{area_name}_{shop}"
+                            st.checkbox(f"{shop}", key=cb_key)
+            else:
+                st.caption("稼働データなし")
             st.markdown("---")
-    else: st.info("現在稼働中のデータはありません。")
+
+        # 3. 落ち店移動の実行エリア
+        # 選択されている店舗をリストアップ
+        selected_shops = []
+        for key, value in st.session_state.items():
+            if key.startswith("move_") and value:
+                # key format: move_A_エリア_店名
+                parts = key.split('_')
+                if len(parts) >= 4:
+                    selected_shops.append({
+                        "acc": parts[1],
+                        "area": parts[2],
+                        "shop": parts[3],
+                        "key": key
+                    })
+
+        if selected_shops:
+            st.warning(f"⚠️ 現在 {len(selected_shops)} 店舗が選択されています。")
+            if st.button("🚀 選択した店舗を【落ち店】へ移動する", type="primary", use_container_width=True):
+                st.session_state.confirm_move = True
+
+            # --- 最終確認ダイアログ ---
+            if st.session_state.get("confirm_move"):
+                st.error("❗ 本当に実行しますか？ (日記文の移動、設定の削除、画像の移動が実行されます)")
+                col_yes, col_no = st.columns(2)
+                
+                if col_yes.button("⭕ はい、実行します", type="primary", use_container_width=True):
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    try:
+                        # スプレッドシートIDの定義
+                        SS_STOCK = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM" # 日記ストック
+                        SS_LINK = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM" # 紐付け
+                        
+                        ws_stock = GC.open_by_key(SS_STOCK).sheet1
+                        sh_link = GC.open_by_key(SS_LINK)
+                        
+                        for i, item in enumerate(selected_shops):
+                            status_text.info(f"処理中 ({i+1}/{len(selected_shops)}): {item['shop']}")
+                            
+                            # --- ① 日記文の移動 ---
+                            ws_main = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[item['acc']])
+                            main_data = ws_main.get_all_values()
+                            # 該当行を探す (A:エリア, B:店名)
+                            for row_idx, row in enumerate(main_data, 1):
+                                if len(row) >= 7 and row[0] == item['area'] and row[1] == item['shop']:
+                                    # タイトル(F列), 本文(G列)を抽出
+                                    title, body = row[5], row[6]
+                                    # ストックへ追加
+                                    ws_stock.append_row(["落ち店", "一括移動", title, body])
+                                    # 元の行を削除
+                                    ws_main.delete_rows(row_idx)
+                                    break
+
+                            # --- ② アカウント紐付けの削除 ---
+                            ws_link = sh_link.worksheet(POSTING_ACCOUNT_SHEETS[item['acc']])
+                            link_data = ws_link.get_all_values()
+                            # エリア(A), 店名(B), 媒体(C)が一致する行を削除
+                            for row_idx, row in enumerate(link_data, 1):
+                                if len(row) >= 3 and row[0] == item['area'] and row[1] == item['shop']:
+                                    ws_link.delete_rows(row_idx)
+                                    break
+
+                            # --- ③ GCS画像の移動 ---
+                            bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
+                            # フォルダ名のパターン作成（デリじゃ対応）
+                            # "エリア/店名" または "エリア/デリじゃ 店名"
+                            possible_prefixes = [
+                                f"{item['area']}/{item['shop']}/",
+                                f"{item['area']}/デリじゃ {item['shop']}/",
+                                f"{item['area']}/デリじゃ　{item['shop']}/"
+                            ]
+                            
+                            moved = False
+                            for prefix in possible_prefixes:
+                                blobs = list(bucket.list_blobs(prefix=prefix))
+                                if blobs:
+                                    for b in blobs:
+                                        new_name = b.name.replace(prefix, f"【落ち店】/{item['shop']}/")
+                                        bucket.copy_blob(b, bucket, new_name)
+                                        b.delete()
+                                    moved = True
+                                    break
+                            
+                            progress_bar.progress((i + 1) / len(selected_shops))
+                        
+                        st.success("🎉 全ての移動処理が完了しました！")
+                        st.session_state.confirm_move = False
+                        # チェックをリセット
+                        for item in selected_shops: st.session_state[item['key']] = False
+                        st.cache_data.clear()
+                        st.rerun()
+
+                    except Exception as e:
+                        st.error(f"エラーが発生しました: {e}")
+                        st.session_state.confirm_move = False
+
+                if col_no.button("❌ キャンセル", use_container_width=True):
+                    st.session_state.confirm_move = False
+                    st.rerun()
+    else:
+        st.info("現在稼働中のデータはありません。")
 
 # =========================================================
 # --- Tab 3: 📂 投稿日記文管理 (変更検知・自動ソート版) ---
@@ -507,6 +624,7 @@ with tab6:
     else:
         if not show_all: st.info("表示するフォルダを選択してください。")
         else: st.info("画像が見つかりませんでした。")
+
 
 
 
