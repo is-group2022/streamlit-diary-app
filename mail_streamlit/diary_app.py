@@ -244,87 +244,65 @@ with tab2:
         ]
 
         if selected_shops:
-            st.warning(f"⚠️ 現在 {len(selected_shops)} 店舗が選択されています。")
-            if st.button("🚀 選択した店舗を【落ち店】へ移動する", type="primary", use_container_width=True):
-                st.session_state.confirm_move = True
+        if st.button("🚀 選択した店舗を【落ち店】へ移動する", type="primary", use_container_width=True):
+            st.session_state.confirm_move = True
 
-            # 最終チェック画面
-            if st.session_state.get("confirm_move"):
-                st.error("❗ 本当に実行しますか？日記と画像が移動されます。")
-                col_yes, col_no = st.columns(2)
-                
-                # キャンセルボタンの復活
-                if col_no.button("❌ キャンセル", use_container_width=True):
-                    st.session_state.confirm_move = False
-                    st.rerun()
+        if st.session_state.get("confirm_move"):
+            st.error("❗ 本当に実行しますか？")
+            col_yes, col_no = st.columns(2)
+            
+            if col_no.button("❌ キャンセル", use_container_width=True):
+                st.session_state.confirm_move = False
+                st.rerun()
 
-                if col_yes.button("⭕ はい、実行します", type="primary", use_container_width=True):
-                    import time 
-                    progress_bar = st.progress(0)
+            if col_yes.button("⭕ はい、実行します", type="primary", use_container_width=True):
+                import time
+                try:
+                    sh_stock = GC.open_by_key("1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM")
+                    ws_stock = sh_stock.sheet1
+                    sh_link = GC.open_by_key(ACCOUNT_STATUS_SHEET_ID)
                     
-                    try:
-                        # 指定された日記保存用シート（末尾 3beqM）を開く
-                        sh_stock = GC.open_by_key("1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM")
-                        ws_stock = sh_stock.sheet1
-                        sh_link = GC.open_by_key(ACCOUNT_STATUS_SHEET_ID)
-                        
-                        for i, item in enumerate(selected_shops):
-                            # ① 日記移動
-                            ws_main = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[item['acc']])
-                            main_data = ws_main.get_all_values()
-                            
-                            for row_idx in range(len(main_data), 0, -1):
-                                row = main_data[row_idx-1]
-                                # B列(店名)が一致する行を処理
-                                if len(row) >= 2 and row[1] == item['shop']:
-                                    # 移動先の構成: A, B列は何も送らず(空文字も送らない)、C, D列のみ指定して追加
-                                    # append_rowの代わりに、まず空の行を作り、C/D列に値を書き込む方法でA/B列（ボタン等）を保護
-                                    # ですが、もっとも安全なのは ["", "", タイトル, 本文] で送ることです。
-                                    new_row = [None, None, row[5], row[6]] # NoneにすることでA,B列の上書きを避ける
-                                    ws_stock.append_row(new_row, value_input_option='USER_ENTERED')
-                                    
-                                    time.sleep(1.0) # API制限対策で長めに待機
-                                    ws_main.delete_rows(row_idx)
+                    for item in selected_shops:
+                        # ① 日記移動
+                        ws_main = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[item['acc']])
+                        main_data = ws_main.get_all_values()
+                        for row_idx in range(len(main_data), 0, -1):
+                            row = main_data[row_idx-1]
+                            if len(row) >= 2 and row[1] == item['shop']:
+                                # A,B列を飛ばして、C列にタイトル(F)、D列に本文(G)を登録
+                                ws_stock.append_row([None, None, row[5], row[6]], value_input_option='USER_ENTERED')
+                                time.sleep(1.5) # API制限(429)対策
+                                ws_main.delete_rows(row_idx)
 
-                            # ② アカウント紐付け（リンク）削除
-                            ws_link = sh_link.worksheet(POSTING_ACCOUNT_SHEETS[item['acc']])
-                            link_data = ws_link.get_all_values()
-                            for row_idx in range(len(link_data), 0, -1):
-                                if len(link_data[row_idx-1]) >= 2 and link_data[row_idx-1][1] == item['shop']:
-                                    ws_link.delete_rows(row_idx)
-                                    break
-                            
-                            # ③ GCS画像移動
-                            bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
-                            found_blobs = []
-                            for pfx in [f"{item['area']}/{item['shop']}/", f"{item['area']}/デリじゃ {item['shop']}/"]:
-                                blobs = list(bucket.list_blobs(prefix=pfx))
-                                if blobs:
-                                    found_blobs = blobs
-                                    break
-                            
-                            for b in found_blobs:
-                                file_name = b.name.split('/')[-1]
-                                new_name = f"【落ち店】/{item['shop']}/{file_name}"
-                                bucket.copy_blob(b, bucket, new_name)
-                                b.delete()
-                            
-                            progress_bar.progress((i + 1) / len(selected_shops))
+                        # ② リンク削除
+                        ws_link = sh_link.worksheet(POSTING_ACCOUNT_SHEETS[item['acc']])
+                        link_data = ws_link.get_all_values()
+                        for row_idx in range(len(link_data), 0, -1):
+                            if len(link_data[row_idx-1]) >= 2 and link_data[row_idx-1][1] == item['shop']:
+                                ws_link.delete_rows(row_idx)
+                                break
                         
-                        st.success("🎉 移動完了！")
-                        st.session_state.confirm_move = False
-                        
-                        # 重要：全タブのキャッシュをクリアしてValueErrorを防止
-                        st.cache_data.clear()
-                        # セッション内の古いデータを消去
-                        if 'diary_df' in st.session_state: del st.session_state.diary_df
-                        
-                        time.sleep(1)
-                        st.rerun()
-
-                    except Exception as e:
-                        st.error(f"エラーが発生しました: {e}")
-                        st.session_state.confirm_move = False
+                        # ③ GCS画像移動 (パス構造維持)
+                        bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
+                        found_blobs = []
+                        for pfx in [f"{item['area']}/{item['shop']}/", f"{item['area']}/デリじゃ {item['shop']}/"]:
+                            blobs = list(bucket.list_blobs(prefix=pfx))
+                            if blobs:
+                                found_blobs = blobs
+                                break
+                        for b in found_blobs:
+                            file_name = b.name.split('/')[-1]
+                            new_name = f"【落ち店】/{item['shop']}/{file_name}"
+                            bucket.copy_blob(b, bucket, new_name)
+                            b.delete()
+                    
+                    st.success("🎉 移動完了！")
+                    st.session_state.confirm_move = False
+                    st.cache_data.clear() # ValueError対策
+                    if 'diary_df' in st.session_state: del st.session_state.diary_df
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"エラー: {e}")
         
 # =========================================================
 # --- Tab 3: 📂 投稿日記文管理 (変更検知・自動ソート版) ---
@@ -649,6 +627,7 @@ with tab6:
     else:
         if not show_all: st.info("表示するフォルダを選択してください。")
         else: st.info("画像が見つかりませんでした。")
+
 
 
 
