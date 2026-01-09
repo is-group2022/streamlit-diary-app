@@ -107,12 +107,13 @@ st.markdown("""
 if 'diary_entries' not in st.session_state:
     st.session_state.diary_entries = [{h: "" for h in INPUT_HEADERS} for _ in range(40)]
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📝 ① データ登録", 
     "📊 ② 店舗アカウント状況", 
     "📂 ③ 投稿データ管理", 
-    "📚 ④ 使用可能日記文",
-    "🖼 ⑤ 使用可能画像"
+    "📸 ④ 投稿画像管理",      # 新設
+    "📚 ⑤ 使用可能日記文",    # 繰り下げ
+    "🖼 ⑥ 使用可能画像"        # 繰り下げ
 ])
 
 # --- データ集計ロジック ---
@@ -267,7 +268,80 @@ with tab3:
         st.info("編集可能なデータはありません。")
 
 # =========================================================
-# --- Tab 4: 📚 使用可能日記文表示 ---
+# --- Tab 4: 📸 ④ 投稿画像管理 (新規) ---
+# =========================================================
+with tab4:
+    st.header("📸 投稿画像管理")
+    st.caption("※【落ち店】以外のフォルダを管理できます")
+
+    # 1. フォルダ一覧の取得（「落ち店」を除外）
+    try:
+        bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
+        blobs = GCS_CLIENT.list_blobs(GCS_BUCKET_NAME, delimiter='/')
+        list(blobs)
+        # 「【落ち店】/」を含まないフォルダのみ抽出
+        all_folders = [f for f in blobs.prefixes if "【落ち店】" not in f]
+    except Exception as e:
+        st.error(f"GCS接続エラー: {e}")
+        all_folders = []
+
+    if all_folders:
+        selected_folder = st.selectbox("📁 管理するフォルダを選択", ["選択してください"] + all_folders)
+
+        if selected_folder != "選択してください":
+            st.markdown(f"### 📍 現在の場所: `{selected_folder}`")
+            
+            # --- A. 画像追加機能 (一括アップロード) ---
+            with st.expander("➕ このフォルダに画像を追加する", expanded=False):
+                uploaded_files = st.file_uploader(
+                    "画像をドラッグ＆ドロップ (最大40枚程度)", 
+                    accept_multiple_files=True, 
+                    type=["jpg", "jpeg", "png", "webp"]
+                )
+                if st.button("🚀 アップロード開始", type="primary"):
+                    if uploaded_files:
+                        progress_text = st.empty()
+                        for i, file in enumerate(uploaded_files):
+                            blob = bucket.blob(f"{selected_folder}{file.name}")
+                            blob.upload_from_string(file.getvalue(), content_type=file.type)
+                            progress_text.text(f"処理中... ({i+1}/{len(uploaded_files)})")
+                        st.success(f"✅ {len(uploaded_files)}枚のアップロードが完了しました！")
+                        st.rerun()
+                    else:
+                        st.warning("ファイルを選択してください")
+
+            st.markdown("---")
+
+            # --- B. 画像一覧 & 削除機能 ---
+            blobs_in_folder = list(bucket.list_blobs(prefix=selected_folder))
+            # フォルダそのものは除外
+            img_blobs = [b for b in blobs_in_folder if b.name != selected_folder and b.name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
+
+            if img_blobs:
+                if st.button("🗑 選択した画像を完全に削除", type="secondary"):
+                    # セッションにある選択済み画像を削除
+                    to_delete = [b for b in img_blobs if st.session_state.get(f"del_{b.name}")]
+                    for b in to_delete:
+                        b.delete()
+                    st.success(f"✅ {len(to_delete)}枚を削除しました")
+                    st.rerun()
+
+                # 8列で表示
+                cols = st.columns(8)
+                for idx, b in enumerate(img_blobs):
+                    with cols[idx % 8]:
+                        # 高速化のためキャッシュされたURLを表示（Tab5で作成した関数を流用）
+                        url = b.generate_signed_url(version="v4", expiration=600, method="GET")
+                        st.image(url, use_container_width=True)
+                        # 削除用チェックボックス
+                        st.checkbox("選択", key=f"del_{b.name}", label_visibility="collapsed")
+            else:
+                st.info("このフォルダは空です。")
+    else:
+        st.warning("管理可能なフォルダが見つかりません。")
+
+# =========================================================
+# --- Tab 5: 📚 使用可能日記文表示 ---
 # =========================================================
 with tab4:
     st.header("4️⃣ 使用可能日記文")
@@ -280,7 +354,7 @@ with tab4:
     except Exception as e: st.error(f"読み込みエラー: {e}")
 
 # =========================================================
-# --- Tab 5: 🖼 ⑤ 使用可能画像 ---
+# --- Tab 6: 🖼 ⑥ 使用可能画像 ---
 # =========================================================
 with tab5:
     st.header("🖼 使用可能画像ブラウザ（落ち店）")
@@ -376,3 +450,4 @@ with tab5:
                 st.info("画像なし")
     else:
         st.warning("フォルダが見つかりません")
+
