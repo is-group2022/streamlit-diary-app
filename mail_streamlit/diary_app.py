@@ -84,19 +84,10 @@ def gcs_upload_wrapper(uploaded_file, entry, area, store):
         return False
 
 def get_cached_url(blob_name):
-    """
-    公開設定にしたバケットから画像のURLを直接生成します。
-    API通信が発生しないため、制限(429)に一切かからなくなります。
-    """
     import urllib.parse
-    # バケット名が正しく設定されていることを確認してください
-    bucket_name = GCS_BUCKET_NAME 
-    
-    # 日本語のファイル名などがある場合に備えて、URLとして使える文字に変換します
+    # 文字列を結合するだけ（API通信なし）
     safe_path = urllib.parse.quote(blob_name)
-    
-    # 公開URLの基本形を返します
-    return f"https://storage.googleapis.com/{bucket_name}/{safe_path}"
+    return f"https://storage.googleapis.com/{GCS_BUCKET_NAME}/{safe_path}"
     
 # --- 3. UI 構築 ---
 st.set_page_config(layout="wide", page_title="写メ日記投稿管理")
@@ -690,6 +681,7 @@ with tab6:
 
     # 実行
     ochimise_action_fragment(folders, show_all)
+
 
 
 
