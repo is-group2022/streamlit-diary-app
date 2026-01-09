@@ -206,14 +206,14 @@ with tab3:
     else: st.info("編集可能なデータはありません。")
 
 # =========================================================
-# --- Tab 4: 📸 ④ 投稿画像管理 (高速化・ファイル名表示版) ---
+# --- Tab 4: 📸 ④ 投稿画像管理 (検索・全選択・削除確認付) ---
 # =========================================================
 with tab4:
     st.header("📸 投稿画像管理")
     
-    # 1. 階層構造と画像リストの取得（キャッシュで高速化）
+    # --- 1. キャッシュ関数 ---
     @st.cache_data(ttl=600)
-    def get_gcs_hierarchy_v3():
+    def get_gcs_hierarchy_v4():
         try:
             b = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
             blobs = GCS_CLIENT.list_blobs(GCS_BUCKET_NAME, prefix="", delimiter='/')
@@ -228,14 +228,12 @@ with tab4:
         except: return {}
 
     @st.cache_data(ttl=300)
-    def get_image_list_cached(path):
-        """画像リスト取得をキャッシュして高速化"""
+    def get_image_list_cached_v4(path):
         b = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
         blobs = list(b.list_blobs(prefix=path))
-        # フォルダ自身を除外し、画像のみ抽出
         return [bl.name for bl in blobs if bl.name != path and bl.name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
 
-    hierarchy = get_gcs_hierarchy_v3()
+    hierarchy = get_gcs_hierarchy_v4()
 
     if hierarchy:
         col_area, col_store = st.columns(2)
@@ -252,43 +250,65 @@ with tab4:
 
                 # --- アップロード ---
                 with st.expander("➕ 画像を一括追加", expanded=False):
-                    up_files = st.file_uploader("ドラッグ＆ドロップ (最大40枚)", accept_multiple_files=True, type=["jpg","jpeg","png","webp"], key="up4")
+                    up_files = st.file_uploader("ドラッグ＆ドロップ", accept_multiple_files=True, type=["jpg","jpeg","png","webp"], key="up4_v4")
                     if st.button("🚀 アップロード実行", use_container_width=True):
                         if up_files:
                             for f in up_files:
                                 active_bucket.blob(f"{target_path}{f.name}").upload_from_string(f.getvalue(), content_type=f.type)
-                            st.cache_data.clear() # リスト更新のため全キャッシュクリア
-                            st.rerun()
+                            st.cache_data.clear(); st.rerun()
 
                 st.markdown("---")
 
-                # --- 画像表示エリア ---
-                img_names = get_image_list_cached(target_path)
-
+                # --- 検索と一括操作 ---
+                img_names = get_image_list_cached_v4(target_path)
+                
                 if img_names:
-                    # 削除ボタン
-                    if st.button("🗑 選択した画像を削除", type="secondary", use_container_width=True):
-                        to_del = [name for name in img_names if st.session_state.get(f"del_4_{name}")]
-                        if to_del:
-                            for name in to_del:
-                                active_bucket.blob(name).delete()
-                            st.success(f"{len(to_del)}枚削除しました")
-                            st.cache_data.clear()
-                            st.rerun()
+                    c_search, c_all, c_none = st.columns([4, 1, 1])
+                    search_query = c_search.text_input("🔍 名前で検索 (例: ひな)", key="search_4")
+                    
+                    # 検索フィルタリング
+                    display_names = [n for n in img_names if search_query.lower() in n.split('/')[-1].lower()]
 
-                    # 8列で小さく表示
-                    cols = st.columns(8)
-                    for idx, b_name in enumerate(img_names):
-                        with cols[idx % 8]:
-                            # ファイル名のみ抽出
-                            short_name = b_name.split('/')[-1]
-                            
-                            # 画像表示
-                            st.image(get_cached_url(b_name), use_container_width=True)
-                            
-                            # ファイル名表示（小さく）とチェックボックス
-                            st.caption(f"{short_name}")
-                            st.checkbox("選", key=f"del_4_{b_name}", label_visibility="collapsed")
+                    if c_all.button("✅ 全選択"):
+                        for n in display_names: st.session_state[f"del_4_{n}"] = True
+                        st.rerun()
+                    if c_none.button("⬜️ 解除"):
+                        for n in display_names: st.session_state[f"del_4_{n}"] = False
+                        st.rerun()
+
+                    # --- 削除確認ロジック ---
+                    to_del_list = [n for n in display_names if st.session_state.get(f"del_4_{n}")]
+                    
+                    if to_del_list:
+                        st.warning(f"⚠️ {len(to_del_list)} 枚の画像を選択中")
+                        if st.button("🗑 選択した画像を完全に削除する", type="secondary", use_container_width=True):
+                            st.session_state.confirm_delete_4 = True
+                        
+                        if st.session_state.get("confirm_delete_4"):
+                            st.error("❗ 本当に削除しますか？この操作は取り消せません。")
+                            col_yes, col_no = st.columns(2)
+                            if col_yes.button("⭕ はい、削除します", type="primary", use_container_width=True):
+                                for n in to_del_list:
+                                    active_bucket.blob(n).delete()
+                                st.session_state.confirm_delete_4 = False
+                                st.cache_data.clear(); st.rerun()
+                            if col_no.button("❌ キャンセル", use_container_width=True):
+                                st.session_state.confirm_delete_4 = False
+                                st.rerun()
+                    
+                    st.markdown("---")
+
+                    # --- 画像表示 (8列) ---
+                    if display_names:
+                        cols = st.columns(8)
+                        for idx, b_name in enumerate(display_names):
+                            with cols[idx % 8]:
+                                short_name = b_name.split('/')[-1]
+                                st.image(get_cached_url(b_name), use_container_width=True)
+                                st.caption(short_name)
+                                st.checkbox("選", key=f"del_4_{b_name}", label_visibility="collapsed")
+                    else:
+                        st.info("検索結果に一致する画像がありません。")
                 else:
                     st.info("画像がありません。")
     else:
@@ -346,6 +366,7 @@ with tab6:
                             if is_sel: st.session_state.selected_images.discard(b.name)
                             else: st.session_state.selected_images.add(b.name)
                             st.rerun()
+
 
 
 
