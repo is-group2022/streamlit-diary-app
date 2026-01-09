@@ -593,120 +593,103 @@ with tab6:
     st.header("🖼 使用可能画像ブラウザ（落ち店）")
     
     ROOT_PATH = "【落ち店】/"
-    
-    # 落ち店専用の画像リスト取得キャッシュ
-    @st.cache_data(ttl=300)
-    def get_ochimise_images_cached(prefix, recursive=False):
-        b = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
-        # recursive=Trueの場合はdelimiterを指定せず全取得、Falseの場合は指定
-        if recursive:
-            blobs = list(b.list_blobs(prefix=prefix))
-        else:
-            blobs = list(b.list_blobs(prefix=prefix, delimiter='/'))
-        return [bl.name for bl in blobs if bl.name != prefix and bl.name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
 
-    # 1. モード選択とフォルダ取得
-    try:
-        bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
-        blobs_init = GCS_CLIENT.list_blobs(GCS_BUCKET_NAME, prefix=ROOT_PATH, delimiter='/')
-        list(blobs_init)
-        folders = blobs_init.prefixes
-    except: folders = []
+    # 1. フォルダリスト取得のキャッシュ化（手動更新ボタン対応）
+    @st.cache_data
+    def get_ochimise_folders_v8(update_tick):
+        try:
+            blobs = GCS_CLIENT.list_blobs(GCS_BUCKET_NAME, prefix=ROOT_PATH, delimiter='/')
+            list(blobs)
+            return blobs.prefixes
+        except: return []
 
+    # セッション管理（更新用キー）
+    if 'tab6_hierarchy_tick' not in st.session_state:
+        st.session_state.tab6_hierarchy_tick = 0
+
+    # 更新ボタン（フォルダ構成が変わった時用）
+    col_ref, _ = st.columns([1.5, 4])
+    if col_ref.button("🔄 フォルダリストを更新", key="ref_hierarchy_6"):
+        st.session_state.tab6_hierarchy_tick += 1
+        st.cache_data.clear()
+        st.rerun()
+
+    folders = get_ochimise_folders_v8(st.session_state.tab6_hierarchy_tick)
+
+    # 2. 表示モードの選択
     show_all = st.checkbox("📂 全画像表示（全ての店舗をまとめて表示）", key="show_all_ochimise")
 
-    target_images = []
-    current_label = "落ち店"
+    # --- 画像グリッドと操作を独立させるFragment ---
+    @st.fragment
+    def ochimise_grid_fragment(folders, show_all):
+        bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
+        target_images = []
+        current_label = "落ち店"
 
-    if show_all:
-        # 全表示モード
-        target_images = get_ochimise_images_cached(ROOT_PATH, recursive=True)
-        current_label = "全店舗一括"
-    elif folders:
-        # 店舗選択モード
-        folder_opts = {f.replace(ROOT_PATH, "").replace("/", ""): f for f in folders}
-        selected_key = st.selectbox("📁 店舗フォルダを選択", ["選択してください"] + list(folder_opts.keys()), key="sel_ochimise_folder")
-        if selected_key != "選択してください":
-            target_path = folder_opts[selected_key]
-            target_images = get_ochimise_images_cached(target_path, recursive=False)
-            current_label = selected_key
+        if show_all:
+            # 全表示モード（キャッシュ利用）
+            @st.cache_data(ttl=600)
+            def get_all_ochimise_images():
+                blobs = list(bucket.list_blobs(prefix=ROOT_PATH))
+                return [bl.name for bl in blobs if bl.name != ROOT_PATH and bl.name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
+            target_images = get_all_ochimise_images()
+            current_label = "全店舗一括"
+        elif folders:
+            # 店舗選択モード
+            folder_opts = {f.replace(ROOT_PATH, "").replace("/", ""): f for f in folders}
+            selected_key = st.selectbox("📁 店舗フォルダを選択", ["選択してください"] + list(folder_opts.keys()), key="sel_ochimise_folder_f")
+            if selected_key != "選択してください":
+                target_path = folder_opts[selected_key]
+                blobs = list(bucket.list_blobs(prefix=target_path, delimiter='/'))
+                target_images = [bl.name for bl in blobs if bl.name != target_path and bl.name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
+                current_label = selected_key
 
-    # 2. アクションエリア
-    if target_images:
-        st.markdown("---")
-        
-        # 検索バー
-        search_q = st.text_input("🔍 名前で検索 (落ち店内)", key="search_6")
-        display_imgs = [n for n in target_images if search_q.lower() in n.split('/')[-1].lower()]
+        if target_images:
+            st.markdown("---")
+            search_q = st.text_input("🔍 名前で検索 (落ち店内)", key="search_6_f")
+            display_imgs = [n for n in target_images if search_q.lower() in n.split('/')[-1].lower()]
 
-        # 操作ボタン
-        c1, c2, c3, c4 = st.columns([1, 1, 2, 2])
-        if c1.button("✅ 全選択", key="all_6", use_container_width=True):
-            for n in display_imgs: st.session_state[f"sel_6_{n}"] = True
-            st.rerun()
-        if c2.button("⬜️ 解除", key="none_6", use_container_width=True):
-            for n in display_imgs: st.session_state[f"sel_6_{n}"] = False
-            st.rerun()
+            # 操作ボタン
+            c1, c2, c3, c4 = st.columns([1, 1, 2, 2])
+            selected_items = [n for n in display_imgs if st.session_state.get(f"sel_6_{n}")]
 
-        selected_items = [n for n in display_imgs if st.session_state.get(f"sel_6_{n}")]
+            if c1.button("✅ 全選択", key="all_6_f", use_container_width=True):
+                for n in display_imgs: st.session_state[f"sel_6_{n}"] = True
+                st.rerun()
+            if c2.button("⬜️ 解除", key="none_6_f", use_container_width=True):
+                for n in display_imgs: st.session_state[f"sel_6_{n}"] = False
+                st.rerun()
 
-        if selected_items:
-            # ハイブリッドダウンロード
-            if len(selected_items) == 1:
-                path = selected_items[0]
-                c3.download_button("💾 1枚保存し削除", data=bucket.blob(path).download_as_bytes(), file_name=path.split('/')[-1], use_container_width=True, type="primary")
-            else:
-                zip_buf = BytesIO()
-                with zipfile.ZipFile(zip_buf, "w") as zf:
-                    for path in selected_items:
-                        zf.writestr(f"落ち店_{current_label}/{path.split('/')[-1]}", bucket.blob(path).download_as_bytes())
-                c3.download_button(f"⬇️ {len(selected_items)}枚ZIP保存し削除", data=zip_buf.getvalue(), file_name=f"落ち店_{current_label}.zip", use_container_width=True, type="primary")
-            
-            # 削除（保存せずに削除したい場合用）
-            if c4.button(f"🗑 {len(selected_items)}枚を完全削除", use_container_width=True, type="secondary"):
-                for n in selected_items: bucket.blob(n).delete()
-                st.cache_data.clear(); st.rerun()
+            if selected_items:
+                # ダウンロード（ZIPまたは単体）
+                if len(selected_items) == 1:
+                    path = selected_items[0]
+                    c3.download_button("💾 1枚保存", bucket.blob(path).download_as_bytes(), file_name=path.split('/')[-1], type="primary", use_container_width=True)
+                else:
+                    zip_buf = BytesIO()
+                    with zipfile.ZipFile(zip_buf, "w") as zf:
+                        for p in selected_items:
+                            zf.writestr(f"落ち店_{current_label}/{p.split('/')[-1]}", bucket.blob(p).download_as_bytes())
+                    c3.download_button(f"⬇️ {len(selected_items)}枚ZIP保存", zip_buf.getvalue(), file_name=f"落ち店_{current_label}.zip", type="primary", use_container_width=True)
+                
+                # 削除ボタン
+                if c4.button(f"🗑 {len(selected_items)}枚を完全削除", use_container_width=True, type="secondary"):
+                    for n in selected_items: bucket.blob(n).delete()
+                    st.cache_data.clear()
+                    st.rerun()
 
-        st.write(f"**表示数: {len(display_imgs)}枚**")
+            st.write(f"**表示数: {len(display_imgs)}枚**")
 
-        # 3. 画像グリッド（8列）
-        cols = st.columns(8)
-        for idx, b_name in enumerate(display_imgs):
-            with cols[idx % 8]:
-                st.image(get_cached_url(b_name), use_container_width=True)
-                st.caption(b_name.split('/')[-1])
-                st.checkbox("選", key=f"sel_6_{b_name}", label_visibility="collapsed")
-    else:
-        if not show_all: st.info("表示するフォルダを選択してください。")
-        else: st.info("画像が見つかりませんでした。")
+            # 画像グリッド
+            cols = st.columns(8)
+            for idx, b_name in enumerate(display_imgs):
+                with cols[idx % 8]:
+                    st.image(get_cached_url(b_name), use_container_width=True)
+                    st.caption(b_name.split('/')[-1])
+                    st.checkbox("選", key=f"sel_6_{b_name}", label_visibility="collapsed")
+        else:
+            if not show_all: st.info("表示するフォルダを選択してください。")
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    # Fragment実行
+    ochimise_grid_fragment(folders, show_all)
 
