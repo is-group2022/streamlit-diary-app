@@ -343,50 +343,96 @@ with tab5:
             st.dataframe(pd.DataFrame(tmp_data[1:], columns=tmp_data[0]), use_container_width=True, height=600)
     except Exception as e: st.error(f"読み込みエラー: {e}")
 
-# --- Tab 6 ---
+# =========================================================
+# --- Tab 6: 🖼 ⑥ 使用可能画像（落ち店） 高速版 ---
+# =========================================================
 with tab6:
     st.header("🖼 使用可能画像ブラウザ（落ち店）")
-    if 'selected_images' not in st.session_state: st.session_state.selected_images = set()
-    ROOT_PATH = "【落ち店】/" 
+    
+    ROOT_PATH = "【落ち店】/"
+    
+    # 落ち店専用の画像リスト取得キャッシュ
+    @st.cache_data(ttl=300)
+    def get_ochimise_images_cached(prefix, recursive=False):
+        b = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
+        # recursive=Trueの場合はdelimiterを指定せず全取得、Falseの場合は指定
+        if recursive:
+            blobs = list(b.list_blobs(prefix=prefix))
+        else:
+            blobs = list(b.list_blobs(prefix=prefix, delimiter='/'))
+        return [bl.name for bl in blobs if bl.name != prefix and bl.name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
+
+    # 1. モード選択とフォルダ取得
     try:
         bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
-        blobs = GCS_CLIENT.list_blobs(GCS_BUCKET_NAME, prefix=ROOT_PATH, delimiter='/')
-        list(blobs) 
-        folders = blobs.prefixes
+        blobs_init = GCS_CLIENT.list_blobs(GCS_BUCKET_NAME, prefix=ROOT_PATH, delimiter='/')
+        list(blobs_init)
+        folders = blobs_init.prefixes
     except: folders = []
 
-    if st.session_state.selected_images:
-        count = len(st.session_state.selected_images)
-        st.info(f"✅ {count} 枚選択中")
-        col1, col2 = st.columns(2)
-        zip_buf = BytesIO()
-        with zipfile.ZipFile(zip_buf, "w") as zf:
-            for path in st.session_state.selected_images:
-                zf.writestr(f"落ち店ダウンロード/{path.split('/')[-1]}", bucket.blob(path).download_as_bytes())
-        if col1.download_button("⬇️ フォルダ形式で保存し削除", data=zip_buf.getvalue(), file_name="落ち店ダウンロード.zip", mime="application/zip", use_container_width=True, type="primary"):
-            for path in st.session_state.selected_images: bucket.blob(path).delete()
-            st.session_state.selected_images = set(); st.cache_data.clear(); st.rerun()
-        if col2.button("🗑 選択をクリア", use_container_width=True): st.session_state.selected_images = set(); st.rerun()
+    show_all = st.checkbox("📂 全画像表示（全ての店舗をまとめて表示）", key="show_all_ochimise")
 
-    if folders:
+    target_images = []
+    current_label = "落ち店"
+
+    if show_all:
+        # 全表示モード
+        target_images = get_ochimise_images_cached(ROOT_PATH, recursive=True)
+        current_label = "全店舗一括"
+    elif folders:
+        # 店舗選択モード
         folder_opts = {f.replace(ROOT_PATH, "").replace("/", ""): f for f in folders}
-        selected_key = st.selectbox("📁 店舗フォルダを選択", ["選択してください"] + list(folder_opts.keys()))
+        selected_key = st.selectbox("📁 店舗フォルダを選択", ["選択してください"] + list(folder_opts.keys()), key="sel_ochimise_folder")
         if selected_key != "選択してください":
-            target = folder_opts[selected_key]
-            image_blobs = [b for b in bucket.list_blobs(prefix=target) if b.name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
-            if image_blobs:
-                cols = st.columns(8)
-                for idx, b in enumerate(image_blobs):
-                    with cols[idx % 8]:
-                        st.image(get_cached_url(b.name), use_container_width=True)
-                        is_sel = b.name in st.session_state.selected_images
-                        if st.button("✅" if is_sel else "⬜️", key=f"btn_{b.name}", use_container_width=True):
-                            if is_sel: st.session_state.selected_images.discard(b.name)
-                            else: st.session_state.selected_images.add(b.name)
-                            st.rerun()
+            target_path = folder_opts[selected_key]
+            target_images = get_ochimise_images_cached(target_path, recursive=False)
+            current_label = selected_key
 
+    # 2. アクションエリア
+    if target_images:
+        st.markdown("---")
+        
+        # 検索バー
+        search_q = st.text_input("🔍 名前で検索 (落ち店内)", key="search_6")
+        display_imgs = [n for n in target_images if search_q.lower() in n.split('/')[-1].lower()]
 
+        # 操作ボタン
+        c1, c2, c3, c4 = st.columns([1, 1, 2, 2])
+        if c1.button("✅ 全選択", key="all_6", use_container_width=True):
+            for n in display_imgs: st.session_state[f"sel_6_{n}"] = True
+            st.rerun()
+        if c2.button("⬜️ 解除", key="none_6", use_container_width=True):
+            for n in display_imgs: st.session_state[f"sel_6_{n}"] = False
+            st.rerun()
 
+        selected_items = [n for n in display_imgs if st.session_state.get(f"sel_6_{n}")]
 
+        if selected_items:
+            # ハイブリッドダウンロード
+            if len(selected_items) == 1:
+                path = selected_items[0]
+                c3.download_button("💾 1枚保存し削除", data=bucket.blob(path).download_as_bytes(), file_name=path.split('/')[-1], use_container_width=True, type="primary")
+            else:
+                zip_buf = BytesIO()
+                with zipfile.ZipFile(zip_buf, "w") as zf:
+                    for path in selected_items:
+                        zf.writestr(f"落ち店_{current_label}/{path.split('/')[-1]}", bucket.blob(path).download_as_bytes())
+                c3.download_button(f"⬇️ {len(selected_items)}枚ZIP保存し削除", data=zip_buf.getvalue(), file_name=f"落ち店_{current_label}.zip", use_container_width=True, type="primary")
+            
+            # 削除（保存せずに削除したい場合用）
+            if c4.button(f"🗑 {len(selected_items)}枚を完全削除", use_container_width=True, type="secondary"):
+                for n in selected_items: bucket.blob(n).delete()
+                st.cache_data.clear(); st.rerun()
 
+        st.write(f"**表示数: {len(display_imgs)}枚**")
 
+        # 3. 画像グリッド（8列）
+        cols = st.columns(8)
+        for idx, b_name in enumerate(display_imgs):
+            with cols[idx % 8]:
+                st.image(get_cached_url(b_name), use_container_width=True)
+                st.caption(b_name.split('/')[-1])
+                st.checkbox("選", key=f"sel_6_{b_name}", label_visibility="collapsed")
+    else:
+        if not show_all: st.info("表示するフォルダを選択してください。")
+        else: st.info("画像が見つかりませんでした。")
