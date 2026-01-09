@@ -291,12 +291,13 @@ with tab2:
                                 row = main_data[row_idx-1]
                                 # B列(店名)が一致する行を処理
                                 if len(row) >= 2 and row[1] == item['shop']:
-                                    # 移動先の構成: A列:空, B列:空, C列:タイトル, D列:本文
-                                    # A,B列には何も入れず、C列(row[5])とD列(row[6])のみを登録
-                                    new_row = ["", "", row[5], row[6]]
-                                    ws_stock.append_row(new_row)
+                                    # 移動先の構成: A, B列は何も送らず(空文字も送らない)、C, D列のみ指定して追加
+                                    # append_rowの代わりに、まず空の行を作り、C/D列に値を書き込む方法でA/B列（ボタン等）を保護
+                                    # ですが、もっとも安全なのは ["", "", タイトル, 本文] で送ることです。
+                                    new_row = [None, None, row[5], row[6]] # NoneにすることでA,B列の上書きを避ける
+                                    ws_stock.append_row(new_row, value_input_option='USER_ENTERED')
                                     
-                                    time.sleep(0.5)
+                                    time.sleep(1.0) # API制限対策で長めに待機
                                     ws_main.delete_rows(row_idx)
 
                             # ② アカウント紐付け（リンク）削除
@@ -324,11 +325,14 @@ with tab2:
                             
                             progress_bar.progress((i + 1) / len(selected_shops))
                         
-                        st.success("🎉 日記のC/D列保存と画像移動が完了しました！")
+                        st.success("🎉 移動完了！")
                         st.session_state.confirm_move = False
                         
-                        # 重要：ValueError対策として、キャッシュを消してから再読み込み
+                        # 重要：全タブのキャッシュをクリアしてValueErrorを防止
                         st.cache_data.clear()
+                        # セッション内の古いデータを消去
+                        if 'diary_df' in st.session_state: del st.session_state.diary_df
+                        
                         time.sleep(1)
                         st.rerun()
 
@@ -659,6 +663,7 @@ with tab6:
     else:
         if not show_all: st.info("表示するフォルダを選択してください。")
         else: st.info("画像が見つかりませんでした。")
+
 
 
 
