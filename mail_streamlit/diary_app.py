@@ -259,7 +259,7 @@ with tab2:
                     st.rerun()
 
                 if col_yes.button("⭕ はい、実行します", type="primary", use_container_width=True):
-                    import time  # エラー回避
+                    import time 
                     progress_bar = st.progress(0)
                     
                     try:
@@ -269,16 +269,19 @@ with tab2:
                         sh_link = GC.open_by_key(ACCOUNT_STATUS_SHEET_ID)
                         
                         for i, item in enumerate(selected_shops):
-                            # ① 日記移動（A, B列を空にする）
+                            # ① 日記移動
                             ws_main = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[item['acc']])
                             main_data = ws_main.get_all_values()
                             
                             for row_idx in range(len(main_data), 0, -1):
                                 row = main_data[row_idx-1]
-                                # B列(店名)が一致する行を移動
+                                # B列(店名)が一致する行を処理
                                 if len(row) >= 2 and row[1] == item['shop']:
-                                    # A, B列を空にして、元のF列(タイトル)とG列(本文)を登録
-                                    ws_stock.append_row(["", "", "", "", "", row[5], row[6]])
+                                    # 移動先の構成: A列:空, B列:空, C列:タイトル, D列:本文
+                                    # A,B列には何も入れず、C列(row[5])とD列(row[6])のみを登録
+                                    new_row = ["", "", row[5], row[6]]
+                                    ws_stock.append_row(new_row)
+                                    
                                     time.sleep(0.5)
                                     ws_main.delete_rows(row_idx)
 
@@ -290,15 +293,9 @@ with tab2:
                                     ws_link.delete_rows(row_idx)
                                     break
                             
-                            # ③ GCS画像移動（パス構造を維持）
+                            # ③ GCS画像移動
                             bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
-                            
-                            # 1. まず「エリア/店名/」で探す
-                            # 2. 見つからない場合は「エリア/デリじゃ 店名/」で探す
-                            # どちらで見つかっても、その「中身」をそのまま【落ち店】/店名/へ移す
-                            
                             found_blobs = []
-                            # 検索パターンの試行
                             for pfx in [f"{item['area']}/{item['shop']}/", f"{item['area']}/デリじゃ {item['shop']}/"]:
                                 blobs = list(bucket.list_blobs(prefix=pfx))
                                 if blobs:
@@ -306,18 +303,17 @@ with tab2:
                                     break
                             
                             for b in found_blobs:
-                                # 元のファイル名だけを抽出
                                 file_name = b.name.split('/')[-1]
-                                # 移動先はシンプルに 【落ち店】/店名/ファイル名
                                 new_name = f"【落ち店】/{item['shop']}/{file_name}"
-                                
                                 bucket.copy_blob(b, bucket, new_name)
                                 b.delete()
                             
                             progress_bar.progress((i + 1) / len(selected_shops))
                         
-                        st.success("🎉 処理が完了しました（日記A,B列空欄 / 画像移動完了）")
+                        st.success("🎉 日記のC/D列保存と画像移動が完了しました！")
                         st.session_state.confirm_move = False
+                        
+                        # 重要：ValueError対策として、キャッシュを消してから再読み込み
                         st.cache_data.clear()
                         time.sleep(1)
                         st.rerun()
@@ -649,6 +645,7 @@ with tab6:
     else:
         if not show_all: st.info("表示するフォルダを選択してください。")
         else: st.info("画像が見つかりませんでした。")
+
 
 
 
