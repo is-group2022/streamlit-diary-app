@@ -539,26 +539,35 @@ with tab4:
                     st.info("画像がありません。")
 
 # =========================================================
-# --- Tab 5: 📚 ⑤ 使用可能日記文 (API負荷軽減版) ---
+# --- Tab 5: 📚 ⑤ 使用可能日記文 (手動更新・API負荷最小版) ---
 # =========================================================
 with tab5:
     st.header("5️⃣ 使用可能日記文")
     
-    # API制限対策：キャッシュを使って頻繁な読み込みを防止
-    @st.cache_data(ttl=600)  # 10分間はキャッシュを保持
-    def get_usable_diary_data(sheet_id):
-        # 既存のクライアント GC を使用
-        tmp_sprs = GC.open_by_key(sheet_id)
-        # シート名は secrets または定数で定義されたものを使用
+    # 💡 引数に「更新用キー」を持たせることで、ボタン押下時のみ中身を実行させる
+    @st.cache_data
+    def get_usable_diary_data(update_tick):
+        # この中身は update_tick が変わらない限り、何度リロードしても実行されません
+        tmp_sprs = GC.open_by_key("1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM")
         tmp_ws = tmp_sprs.sheet1 
         return tmp_ws.get_all_values()
 
+    # セッションで更新用キーを管理
+    if 'tab5_update_tick' not in st.session_state:
+        st.session_state.tab5_update_tick = 0
+
+    # --- 更新ボタンの配置 ---
+    col_refresh, _ = st.columns([1, 4])
+    if col_refresh.button("🔄 データを最新に更新", key="refresh_tab5", use_container_width=True):
+        st.session_state.tab5_update_tick += 1  # キーを増やすことでキャッシュを更新させる
+        st.cache_data.clear()
+        st.rerun()
+
     try:
-        # 関数を呼び出してデータを取得
-        tmp_data = get_usable_diary_data("1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM")
+        # キャッシュされたデータを取得
+        tmp_data = get_usable_diary_data(st.session_state.tab5_update_tick)
         
         if len(tmp_data) > 1:
-            # 1行目をヘッダーとしてデータフレームを作成
             df_usable = pd.DataFrame(tmp_data[1:], columns=tmp_data[0])
             st.dataframe(df_usable, use_container_width=True, height=600, hide_index=True)
         else:
@@ -566,14 +575,9 @@ with tab5:
 
     except Exception as e:
         if "429" in str(e):
-            st.error("🚨 Google APIの制限を超えました。1分ほど待ってから再読み込みしてください。")
+            st.error("🚨 API制限中です。1分待ってから「最新に更新」を押してください。")
         else:
             st.error(f"読み込みエラー: {e}")
-
-    # 手動更新ボタン（キャッシュをクリアして再読み込み）
-    if st.button("🔄 データを最新に更新", key="refresh_tab5"):
-        st.cache_data.clear()
-        st.rerun()
         
 # =========================================================
 # --- Tab 6: 🖼 ⑥ 使用可能画像（落ち店） 高速版 ---
@@ -668,6 +672,7 @@ with tab6:
     else:
         if not show_all: st.info("表示するフォルダを選択してください。")
         else: st.info("画像が見つかりませんでした。")
+
 
 
 
