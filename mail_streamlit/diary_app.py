@@ -206,103 +206,97 @@ with tab3:
     else: st.info("編集可能なデータはありません。")
 
 # =========================================================
-# --- Tab 4: 📸 ④ 投稿画像管理 ---
+# --- Tab 4: 📸 ④ 投稿画像管理 (修正版) ---
 # =========================================================
 with tab4:
     st.header("📸 投稿画像管理")
-    st.caption("エリアを選択し、その中の店舗フォルダを管理します（※【落ち店】は除外）")
+    st.caption("エリアを選択し、店舗フォルダ内の画像を管理します（※【落ち店】は除外）")
 
     # 1. エリア・店舗リストを高速に取得する関数
     @st.cache_data(ttl=300)
-    def get_gcs_hierarchy():
+    def get_gcs_hierarchy_v2():
         try:
-            bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
-            # ルート直下のフォルダ（エリア）を取得
+            # ここでバケットを定義
+            b = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
+            # エリア階層（ルート直下）を取得
             blobs = GCS_CLIENT.list_blobs(GCS_BUCKET_NAME, prefix="", delimiter='/')
             list(blobs)
             areas = [p.replace("/", "") for p in blobs.prefixes if "【落ち店】" not in p and p != "/"]
             
             hierarchy = {}
             for area in areas:
-                # 各エリア内のサブフォルダ（店舗）を取得
+                # 店舗階層を取得
                 area_blobs = GCS_CLIENT.list_blobs(GCS_BUCKET_NAME, prefix=f"{area}/", delimiter='/')
                 list(area_blobs)
-                stores = [p for p in area_blobs.prefixes]
-                hierarchy[area] = stores
+                hierarchy[area] = [p for p in area_blobs.prefixes]
             return hierarchy
         except:
             return {}
 
-    hierarchy = get_gcs_hierarchy()
+    hierarchy = get_gcs_hierarchy_v2()
 
     if hierarchy:
         col_area, col_store = st.columns(2)
-        
-        # エリア選択
         selected_area = col_area.selectbox("📍 エリアを選択", ["選択してください"] + list(hierarchy.keys()), key="sel_area_4")
         
         if selected_area != "選択してください":
-            # 店舗選択（表示は店舗名のみに整形）
             store_paths = hierarchy[selected_area]
             store_options = {p.split('/')[-2]: p for p in store_paths}
             selected_store_name = col_store.selectbox("🏢 店舗を選択", ["選択してください"] + list(store_options.keys()), key="sel_store_4")
 
             if selected_store_name != "選択してください":
                 target_full_path = store_options[selected_store_name]
-                st.markdown(f"---")
                 
-                # --- A. アップロードエリア (UIを見やすく枠囲み風に) ---
-                st.subheader("➕ 画像の一括追加")
-                with st.container():
-                    up_files = st.file_uploader(
-                        f"「{selected_store_name}」にアップロード (最大40枚)", 
-                        accept_multiple_files=True, 
-                        type=["jpg","jpeg","png","webp"], 
-                        key="bulk_up_4"
-                    )
-                    if st.button("🚀 この店舗にアップロードを実行", type="primary", use_container_width=True):
-                        if up_files:
-                            with st.spinner("アップロード中..."):
-                                for f in up_files:
-                                    # 選択された店舗パスに直接保存
-                                    bucket.blob(f"{target_full_path}{f.name}").upload_from_string(f.getvalue(), content_type=f.type)
-                            st.success(f"✅ {len(up_files)}枚追加しました")
-                            st.cache_data.clear() # リストを更新するためにキャッシュクリア
-                            st.rerun()
+                # --- 重要：ここで bucket を定義 ---
+                active_bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
 
-                st.markdown(f"---")
+                st.markdown("---")
+                st.subheader(f"➕ 「{selected_store_name}」に画像を追加")
+                
+                up_files = st.file_uploader(
+                    "ドラッグ＆ドロップ (最大40枚)", 
+                    accept_multiple_files=True, 
+                    type=["jpg","jpeg","png","webp"], 
+                    key="bulk_up_4"
+                )
+                
+                if st.button("🚀 アップロード実行", type="primary", use_container_width=True):
+                    if up_files:
+                        with st.spinner("アップロード中..."):
+                            for f in up_files:
+                                blob = active_bucket.blob(f"{target_full_path}{f.name}")
+                                blob.upload_from_string(f.getvalue(), content_type=f.type)
+                        st.success(f"✅ {len(up_files)}枚追加完了")
+                        st.cache_data.clear()
+                        st.rerun()
 
-                # --- B. 画像一覧 & 削除機能 (動作を軽く) ---
+                st.markdown("---")
                 st.subheader("🖼 登録済み画像")
-                
-                # 画像一覧を取得
-                all_blobs = list(bucket.list_blobs(prefix=target_full_path))
-                img_blobs = [b for b in all_blobs if b.name != target_full_path and b.name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
+
+                # エラー箇所：active_bucket を使用してリスト取得
+                img_blobs = [b for b in active_bucket.list_blobs(prefix=target_full_path) 
+                            if b.name != target_full_path and b.name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
 
                 if img_blobs:
-                    # 削除ボタンを上部に配置
-                    if st.button("🗑 選択した画像を完全に削除", type="secondary", use_container_width=True):
+                    if st.button("🗑 選択した画像を削除", type="secondary", use_container_width=True):
                         to_del = [b for b in img_blobs if st.session_state.get(f"del_4_{b.name}")]
                         if to_del:
                             for b in to_del:
                                 b.delete()
-                            st.success(f"{len(to_del)}枚削除しました")
+                            st.success(f"{len(to_del)}枚削除完了")
                             st.cache_data.clear()
                             st.rerun()
-                        else:
-                            st.warning("削除する画像を選択してください")
 
-                    # 8列で軽量表示
+                    # 8列表示
                     cols = st.columns(8)
                     for idx, b in enumerate(img_blobs):
                         with cols[idx % 8]:
-                            # キャッシュ済みのURLを使用
                             st.image(get_cached_url(b.name), use_container_width=True)
-                            st.checkbox("選択", key=f"del_4_{b.name}", label_visibility="collapsed")
+                            st.checkbox("選", key=f"del_4_{b.name}", label_visibility="collapsed")
                 else:
-                    st.info("現在、この店舗フォルダに画像はありません。")
+                    st.info("画像がありません。")
     else:
-        st.warning("GCS内のフォルダ構造を取得できませんでした。")
+        st.warning("フォルダ構造が取得できません。")
 
 # --- Tab 5 ---
 with tab5:
@@ -356,4 +350,5 @@ with tab6:
                             if is_sel: st.session_state.selected_images.discard(b.name)
                             else: st.session_state.selected_images.add(b.name)
                             st.rerun()
+
 
