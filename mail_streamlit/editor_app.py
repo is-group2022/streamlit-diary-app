@@ -68,7 +68,8 @@ st.markdown("""
         border: 1px solid #d1d5db;
     }
     .stTextArea textarea { font-size: 15px; line-height: 1.6; }
-    .diary-card {
+    /* 区切り線 */
+    .diary-divider {
         border-bottom: 2px solid #eee;
         padding-bottom: 30px;
         margin-bottom: 30px;
@@ -92,6 +93,7 @@ def main():
     
     if len(data) <= 1:
         st.warning("このシートには有効なデータがありません。")
+        st.markdown('</div>', unsafe_allow_html=True)
         return
         
     full_df = pd.DataFrame(data[1:])
@@ -143,8 +145,8 @@ def main():
 
             with col_txt:
                 new_title = st.text_input("タイトル", row["タイトル"], key=f"ti_{idx}")
-                # 本文を全文表示 (heightを大きめに設定)
-                new_body = st.text_area("本文", row["本文"], key=f"bo_{idx}", height=350)
+                # 本文をさらに大きく表示 (height=400)
+                new_body = st.text_area("本文", row["本文"], key=f"bo_{idx}", height=400)
                 
                 if st.button("💾 内容を保存", key=f"sv_{idx}", type="primary"):
                     ws.update_cell(row['__row__'], 6, new_title)
@@ -176,7 +178,8 @@ def main():
                         st.cache_data.clear()
                         st.rerun()
             
-            st.markdown("<div class="diary-card"></div>", unsafe_allow_html=True)
+            # 区切り用HTML (SyntaxErrorを修正)
+            st.markdown("<div class='diary-divider'></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
