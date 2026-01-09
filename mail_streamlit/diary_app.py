@@ -184,26 +184,47 @@ with tab2:
             st.markdown("---")
     else: st.info("現在稼働中のデータはありません。")
 
-# --- Tab 3 ---
+# =========================================================
+# --- Tab 3: 📂 投稿日記文管理 ---
+# =========================================================
 with tab3:
-    st.markdown("### 📂 投稿データ管理 (一括編集)")
+    st.markdown("### 📂 投稿日記文管理 (一括編集)")
     if combined_data:
+        # データフレームの準備
         df = pd.DataFrame(combined_data, columns=["アカウント", "行番号"] + REGISTRATION_HEADERS)
-        edited_df = st.data_editor(df, key="main_editor", use_container_width=True, hide_index=True, disabled=["アカウント", "行番号"], height=600)
+        
+        # データエディタの表示
+        edited_df = st.data_editor(
+            df, 
+            key="main_editor", 
+            use_container_width=True, 
+            hide_index=True, 
+            disabled=["アカウント", "行番号"], 
+            height=600
+        )
+        
+        # 反映ボタン
         if st.button("🔥 変更内容をスプレッドシートに一括反映する", type="primary", use_container_width=True):
             with st.spinner("保存中..."):
                 try:
                     for acc_code in POSTING_ACCOUNT_OPTIONS:
                         target_rows = edited_df[edited_df["アカウント"] == acc_code]
-                        if target_rows.empty: continue
+                        if target_rows.empty:
+                            continue
+                        
                         ws = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[acc_code])
                         for _, row in target_rows.iterrows():
                             row_idx = int(row["行番号"])
                             new_values = [str(row[h]) for h in REGISTRATION_HEADERS]
+                            # 指定した行番号のA列〜G列を一括更新
                             ws.update(f"A{row_idx}:G{row_idx}", [new_values], value_input_option='USER_ENTERED')
-                    st.success("🎉 更新完了！"); st.rerun()
-                except Exception as e: st.error(f"エラー: {e}")
-    else: st.info("編集可能なデータはありません。")
+                    
+                    st.success("🎉 更新完了！")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"エラーが発生しました: {e}")
+    else:
+        st.info("編集可能なデータはありません。")
 
 # =========================================================
 # --- Tab 4: 📸 ④ 投稿画像管理 (ハイブリッド・ダウンロード版) ---
@@ -436,3 +457,4 @@ with tab6:
     else:
         if not show_all: st.info("表示するフォルダを選択してください。")
         else: st.info("画像が見つかりませんでした。")
+
