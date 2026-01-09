@@ -81,11 +81,12 @@ def gcs_upload_wrapper(uploaded_file, entry, area, store):
         st.error(f"❌ GCSアップロード失敗: {e}")
         return False
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=86400 * 7) # キャッシュ自体も7日間保持
 def get_cached_url(blob_name):
     bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
     blob = bucket.blob(blob_name)
-    return blob.generate_signed_url(version="v4", expiration=600, method="GET")
+    # 有効期限を7日間に設定
+    return blob.generate_signed_url(expiration=datetime.timedelta(days=7))
 
 # --- 3. UI 構築 ---
 st.set_page_config(layout="wide", page_title="写メ日記投稿管理")
@@ -428,19 +429,20 @@ with tab3:
         st.info("編集可能なデータはありません。")
         
 # =========================================================
-# --- Tab 4: 📸 ④ 投稿画像管理 (ハイブリッド・ダウンロード版) ---
+# --- Tab 4: 📸 ④ 投稿画像管理 (手動更新・Fragment高速版) ---
 # =========================================================
 with tab4:
     st.header("📸 投稿画像管理")
     
-    # --- 1. キャッシュ関数 ---
-    @st.cache_data(ttl=600)
-    def get_gcs_hierarchy_v7():
+    # 1. 階層構造取得のキャッシュ化（update_tickで制御）
+    @st.cache_data
+    def get_gcs_hierarchy_v8(update_tick):
         try:
-            b = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
+            # delimiter='/' を使って効率的に取得
             blobs = GCS_CLIENT.list_blobs(GCS_BUCKET_NAME, prefix="", delimiter='/')
-            list(blobs)
+            list(blobs) # イテレータを回す
             areas = [p.replace("/", "") for p in blobs.prefixes if "【落ち店】" not in p and p != "/"]
+            
             hierarchy = {}
             for area in areas:
                 area_blobs = GCS_CLIENT.list_blobs(GCS_BUCKET_NAME, prefix=f"{area}/", delimiter='/')
@@ -449,13 +451,18 @@ with tab4:
             return hierarchy
         except: return {}
 
-    @st.cache_data(ttl=300)
-    def get_image_list_cached_v7(path):
-        b = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
-        blobs = list(b.list_blobs(prefix=path))
-        return [bl.name for bl in blobs if bl.name != path and bl.name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
+    # セッション管理（更新用キー）
+    if 'tab4_hierarchy_tick' not in st.session_state:
+        st.session_state.tab4_hierarchy_tick = 0
 
-    hierarchy = get_gcs_hierarchy_v7()
+    # 更新ボタン
+    col_ref, _ = st.columns([1.5, 4])
+    if col_ref.button("🔄 エリア・店舗リストを更新", key="ref_hierarchy_4"):
+        st.session_state.tab4_hierarchy_tick += 1
+        st.cache_data.clear()
+        st.rerun()
+
+    hierarchy = get_gcs_hierarchy_v8(st.session_state.tab4_hierarchy_tick)
 
     if hierarchy:
         c_sel1, c_sel2 = st.columns(2)
@@ -470,90 +477,73 @@ with tab4:
                 target_path = store_options[selected_store_name]
                 active_bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
 
-                # --- アップロード ---
-                with st.expander("➕ 画像をこの店舗に追加", expanded=False):
-                    up_files = st.file_uploader("画像をドロップ", accept_multiple_files=True, type=["jpg","jpeg","png","webp"], key="up4_v7")
-                    if st.button("🚀 アップロード開始", use_container_width=True):
-                        if up_files:
-                            for f in up_files:
-                                active_bucket.blob(f"{target_path}{f.name}").upload_from_string(f.getvalue(), content_type=f.type)
-                            st.cache_data.clear(); st.rerun()
+                # --- 削除・選択ロジックを独立させるFragment ---
+                @st.fragment
+                def image_grid_fragment(path, store_name):
+                    # 画像リスト取得（ここはキャッシュを利用）
+                    blobs = list(active_bucket.list_blobs(prefix=path))
+                    img_names = [bl.name for bl in blobs if bl.name != path and bl.name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
 
-                st.markdown("---")
+                    if not img_names:
+                        st.info("画像がありません。")
+                        return
 
-                # --- 検索と操作 ---
-                img_names = get_image_list_cached_v7(target_path)
-                
-                if img_names:
-                    search_query = st.text_input("🔍 名前で検索", key="search_4_v7")
+                    search_query = st.text_input("🔍 名前で検索", key="search_4_v8")
                     display_names = [n for n in img_names if search_query.lower() in n.split('/')[-1].lower()]
 
+                    # 操作ボタン
                     btn_c1, btn_c2, btn_c3, btn_c4 = st.columns([1, 1, 2, 2])
-                    if btn_c1.button("✅ 全選択", use_container_width=True):
-                        for n in display_names: st.session_state[f"del_4_{n}"] = True
-                        st.rerun()
-                    if btn_c2.button("⬜️ 解除", use_container_width=True):
-                        for n in display_names: st.session_state[f"del_4_{n}"] = False
-                        st.rerun()
-
+                    
+                    # 複数選択の管理は session_state を利用
                     selected_items = [n for n in display_names if st.session_state.get(f"del_4_{n}")]
 
-                    # --- ハイブリッド・ダウンロード ---
+                    # 一括ダウンロード処理 (ZIP)
                     if selected_items:
                         if len(selected_items) == 1:
-                            # 1枚なら「生」で保存
-                            path = selected_items[0]
-                            file_name = path.split('/')[-1]
-                            btn_c3.download_button(
-                                label="💾 1枚を保存",
-                                data=active_bucket.blob(path).download_as_bytes(),
-                                file_name=file_name,
-                                use_container_width=True,
-                                type="primary"
-                            )
+                            btn_c3.download_button("💾 1枚保存", active_bucket.blob(selected_items[0]).download_as_bytes(), file_name=selected_items[0].split('/')[-1], type="primary", use_container_width=True)
                         else:
-                            # 複数なら「ZIP」で保存
                             zip_buf = BytesIO()
                             with zipfile.ZipFile(zip_buf, "w") as zf:
-                                for path in selected_items:
-                                    zf.writestr(f"{selected_store_name}/{path.split('/')[-1]}", active_bucket.blob(path).download_as_bytes())
-                            btn_c3.download_button(
-                                label=f"⬇️ {len(selected_items)}枚をZIP保存",
-                                data=zip_buf.getvalue(),
-                                file_name=f"{selected_store_name}.zip",
-                                use_container_width=True,
-                                type="primary"
-                            )
+                                for p in selected_items:
+                                    zf.writestr(f"{store_name}/{p.split('/')[-1]}", active_bucket.blob(p).download_as_bytes())
+                            btn_c3.download_button(f"⬇️ {len(selected_items)}枚ZIP保存", zip_buf.getvalue(), file_name=f"{store_name}.zip", type="primary", use_container_width=True)
 
-                        # --- 削除確認 ---
-                        if btn_c4.button(f"🗑 {len(selected_items)}枚を削除", use_container_width=True, type="secondary"):
+                        if btn_c4.button(f"🗑 {len(selected_items)}枚削除", type="secondary", use_container_width=True):
                             st.session_state.confirm_del_4 = True
 
-                        if st.session_state.get("confirm_del_4"):
-                            st.error(f"⚠️ 選択した {len(selected_items)} 枚を本当に削除しますか？")
-                            conf_c1, conf_c2 = st.columns(2)
-                            if conf_c1.button("⭕ 削除実行", type="primary", use_container_width=True):
-                                for n in selected_items: active_bucket.blob(n).delete()
-                                st.session_state.confirm_del_4 = False
-                                st.cache_data.clear(); st.rerun()
-                            if conf_c2.button("❌ キャンセル", use_container_width=True):
-                                st.session_state.confirm_del_4 = False
-                                st.rerun()
+                    # 削除確認
+                    if st.session_state.get("confirm_del_4"):
+                        st.error("⚠️ 本当に削除しますか？")
+                        if st.button("⭕ 実行"):
+                            for n in selected_items: active_bucket.blob(n).delete()
+                            st.session_state.confirm_del_4 = False
+                            st.cache_data.clear()
+                            st.rerun()
 
                     st.markdown(f"**表示中: {len(display_names)} 枚**")
                     
-                    # --- 画像グリッド表示 ---
+                    # 画像グリッド（8列）
                     cols = st.columns(8)
                     for idx, b_name in enumerate(display_names):
                         with cols[idx % 8]:
-                            short_name = b_name.split('/')[-1]
+                            # 💡 有効期限を最大(7日間)に設定したURL取得（別関数で定義済みと想定）
+                            # get_cached_urlの中で expiration=datetime.timedelta(days=7) に変更してください
                             st.image(get_cached_url(b_name), use_container_width=True)
-                            # 画像名を表示（見やすく改行対応）
-                            st.caption(short_name)
+                            st.caption(b_name.split('/')[-1])
                             st.checkbox("選", key=f"del_4_{b_name}", label_visibility="collapsed")
-                else:
-                    st.info("画像がありません。")
 
+                # Fragment実行
+                image_grid_fragment(target_path, selected_store_name)
+
+                # アップロードはFragmentの外で管理（フォルダ構成が変わる可能性があるため）
+                with st.expander("➕ 画像をこの店舗に追加"):
+                    up_files = st.file_uploader("画像をドロップ", accept_multiple_files=True, type=["jpg","jpeg","png","webp"])
+                    if st.button("🚀 アップロード開始"):
+                        if up_files:
+                            for f in up_files:
+                                active_bucket.blob(f"{target_path}{f.name}").upload_from_string(f.getvalue(), content_type=f.type)
+                            st.cache_data.clear()
+                            st.rerun()
 # =========================================================
 # --- Tab 5: 📚 ⑤ 使用可能日記文 (手動更新・API負荷最小版) ---
 # =========================================================
@@ -688,6 +678,7 @@ with tab6:
     else:
         if not show_all: st.info("表示するフォルダを選択してください。")
         else: st.info("画像が見つかりませんでした。")
+
 
 
 
