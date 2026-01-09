@@ -263,7 +263,7 @@ with tab2:
                     progress_bar = st.progress(0)
                     
                     try:
-                        # 指定された日記保存用シートを開く
+                        # 指定された日記保存用シート（末尾 3beqM）を開く
                         sh_stock = GC.open_by_key("1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM")
                         ws_stock = sh_stock.sheet1
                         sh_link = GC.open_by_key(ACCOUNT_STATUS_SHEET_ID)
@@ -273,12 +273,11 @@ with tab2:
                             ws_main = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[item['acc']])
                             main_data = ws_main.get_all_values()
                             
-                            # 該当店舗の全日記をスキャンして移動
                             for row_idx in range(len(main_data), 0, -1):
                                 row = main_data[row_idx-1]
+                                # B列(店名)が一致する行を移動
                                 if len(row) >= 2 and row[1] == item['shop']:
-                                    # A列(エリア)とB列(店名)を空文字にして、F列(タイトル)とG列(本文)を登録
-                                    # スプレッドシートの構造に合わせて ["", "", "", "", "", タイトル, 本文]
+                                    # A, B列を空にして、元のF列(タイトル)とG列(本文)を登録
                                     ws_stock.append_row(["", "", "", "", "", row[5], row[6]])
                                     time.sleep(0.5)
                                     ws_main.delete_rows(row_idx)
@@ -291,16 +290,25 @@ with tab2:
                                     ws_link.delete_rows(row_idx)
                                     break
                             
-                            # ③ GCS画像移動（修正版）
+                            # ③ GCS画像移動（パス構造を維持）
                             bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
-                            # 「デリじゃ」対応のフォルダ名作成ロジックを再現
-                            folder_name = f"デリじゃ {item['shop']}" if st.session_state.get('global_media') == "デリじゃ" else item['shop']
-                            prefix = f"{item['area']}/{folder_name}/"
                             
-                            blobs = list(bucket.list_blobs(prefix=prefix))
-                            for b in blobs:
-                                # 元のファイル名だけを抽出して新しいパス（落ち店用）を作成
+                            # 1. まず「エリア/店名/」で探す
+                            # 2. 見つからない場合は「エリア/デリじゃ 店名/」で探す
+                            # どちらで見つかっても、その「中身」をそのまま【落ち店】/店名/へ移す
+                            
+                            found_blobs = []
+                            # 検索パターンの試行
+                            for pfx in [f"{item['area']}/{item['shop']}/", f"{item['area']}/デリじゃ {item['shop']}/"]:
+                                blobs = list(bucket.list_blobs(prefix=pfx))
+                                if blobs:
+                                    found_blobs = blobs
+                                    break
+                            
+                            for b in found_blobs:
+                                # 元のファイル名だけを抽出
                                 file_name = b.name.split('/')[-1]
+                                # 移動先はシンプルに 【落ち店】/店名/ファイル名
                                 new_name = f"【落ち店】/{item['shop']}/{file_name}"
                                 
                                 bucket.copy_blob(b, bucket, new_name)
@@ -308,7 +316,7 @@ with tab2:
                             
                             progress_bar.progress((i + 1) / len(selected_shops))
                         
-                        st.success("🎉 日記（A,B列空欄）および画像の移動が完了しました！")
+                        st.success("🎉 処理が完了しました（日記A,B列空欄 / 画像移動完了）")
                         st.session_state.confirm_move = False
                         st.cache_data.clear()
                         time.sleep(1)
@@ -641,6 +649,7 @@ with tab6:
     else:
         if not show_all: st.info("表示するフォルダを選択してください。")
         else: st.info("画像が見つかりませんでした。")
+
 
 
 
