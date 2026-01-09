@@ -4,6 +4,7 @@ import gspread
 import zipfile
 import re
 from io import BytesIO
+from datetime import timedelta
 from google.oauth2.service_account import Credentials
 from google.cloud import storage 
 from googleapiclient.discovery import build
@@ -678,6 +679,7 @@ with tab6:
     else:
         if not show_all: st.info("表示するフォルダを選択してください。")
         else: st.info("画像が見つかりませんでした。")
+
 
 
 
