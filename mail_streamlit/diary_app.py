@@ -239,14 +239,12 @@ with tab2:
             
             if acc_code in acc_summary:
                 areas = acc_summary[acc_code]
-                # エリアごとにカラムを分ける
                 area_cols = st.columns(len(areas) if len(areas) > 0 else 1)
                 
                 for idx, (area_name, shops) in enumerate(areas.items()):
                     with area_cols[idx]:
                         st.info(f"📍 **{area_name}**")
                         for shop in sorted(shops):
-                            # チェックボックスで店舗を選択（キーにアカウント・エリア・店名を含める）
                             cb_key = f"move_{acc_code}_{area_name}_{shop}"
                             st.checkbox(f"{shop}", key=cb_key)
             else:
@@ -271,7 +269,6 @@ with tab2:
             if st.button("🚀 選択した店舗を【落ち店】へ移動する", type="primary", use_container_width=True):
                 st.session_state.confirm_move = True
 
-            # --- 最終確認ダイアログ ---
             if st.session_state.get("confirm_move"):
                 st.error("❗ 本当に実行しますか？ (日記文の移動、設定の削除、画像の移動が実行されます)")
                 col_yes, col_no = st.columns(2)
@@ -281,15 +278,18 @@ with tab2:
                     status_text = st.empty()
                     
                     try:
-                        # --- 修正ポイント：SPRSのクライアントを使用してGC未定義を回避 ---
-                        client = SPRS.client
+                        # --- 修正ポイント：認証済みクライアントを安全に取得 ---
+                        # 既存のSPRS（gspread.models.Spreadsheet）から、認証済みのgspreadクライアントを取得します
+                        authorized_client = SPRS.client if hasattr(SPRS.client, 'open_by_key') else SPRS.spreadsheet.client
                         
                         # スプレッドシートIDの定義
                         SS_STOCK = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM" # 日記ストック
                         SS_LINK = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM" # 紐付け
                         
-                        ws_stock = client.open_by_key(SS_STOCK).sheet1
-                        sh_link = client.open_by_key(SS_LINK)
+                        # 新しいクライアント経由でスプレッドシートを開く
+                        sh_stock = authorized_client.open_by_key(SS_STOCK)
+                        ws_stock = sh_stock.sheet1
+                        sh_link = authorized_client.open_by_key(SS_LINK)
                         
                         for i, item in enumerate(selected_shops):
                             status_text.info(f"処理中 ({i+1}/{len(selected_shops)}): {item['shop']}")
@@ -297,23 +297,18 @@ with tab2:
                             # --- ① 日記文の移動 ---
                             ws_main = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[item['acc']])
                             main_data = ws_main.get_all_values()
-                            # 削除で行番号がズレないよう下から上に検索
                             for row_idx in range(len(main_data), 0, -1):
                                 row = main_data[row_idx-1]
                                 if len(row) >= 7 and row[0] == item['area'] and row[1] == item['shop']:
-                                    # タイトル(F列), 本文(G列)を抽出
                                     title, body = row[5], row[6]
-                                    # ストックへ追加
                                     ws_stock.append_row(["落ち店", "一括移動", title, body])
-                                    time.sleep(0.5) # API負荷軽減
-                                    # 元の行を削除
+                                    time.sleep(1.0) # API制限をより安全に回避
                                     ws_main.delete_rows(row_idx)
                                     break
 
                             # --- ② アカウント紐付けの削除 ---
                             ws_link = sh_link.worksheet(POSTING_ACCOUNT_SHEETS[item['acc']])
                             link_data = ws_link.get_all_values()
-                            # 下から上に検索
                             for row_idx in range(len(link_data), 0, -1):
                                 row = link_data[row_idx-1]
                                 if len(row) >= 3 and row[0] == item['area'] and row[1] == item['shop']:
@@ -337,12 +332,11 @@ with tab2:
                                         b.delete()
                                     break
                             
-                            time.sleep(0.5) # API負荷軽減
+                            time.sleep(1.0) 
                             progress_bar.progress((i + 1) / len(selected_shops))
                         
                         st.success("🎉 全ての移動処理が完了しました！")
                         st.session_state.confirm_move = False
-                        # チェックをリセット
                         for item in selected_shops: st.session_state[item['key']] = False
                         st.cache_data.clear()
                         st.rerun()
@@ -680,6 +674,7 @@ with tab6:
     else:
         if not show_all: st.info("表示するフォルダを選択してください。")
         else: st.info("画像が見つかりませんでした。")
+
 
 
 
