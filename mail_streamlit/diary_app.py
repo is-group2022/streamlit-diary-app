@@ -244,19 +244,30 @@ with tab2:
         ]
 
         if selected_shops:
-            if st.button("🚀 選択した店舗を【落ち店】へ移動する", type="primary"):
+            st.warning(f"⚠️ 現在 {len(selected_shops)} 店舗が選択されています。")
+            if st.button("🚀 選択した店舗を【落ち店】へ移動する", type="primary", use_container_width=True):
                 st.session_state.confirm_move = True
 
+            # 最終チェック画面
             if st.session_state.get("confirm_move"):
+                st.error("❗ 本当に実行しますか？日記と画像が移動されます。")
                 col_yes, col_no = st.columns(2)
-                if col_yes.button("⭕ はい、実行します"):
+                
+                # キャンセルボタンの復活
+                if col_no.button("❌ キャンセル", use_container_width=True):
+                    st.session_state.confirm_move = False
+                    st.rerun()
+
+                if col_yes.button("⭕ はい、実行します", type="primary", use_container_width=True):
+                    import time  # エラー回避のためここで再インポート
+                    progress_bar = st.progress(0)
+                    
                     try:
-                        # GC を使って別のシートを開く
                         sh_stock = GC.open_by_key(USABLE_DIARY_SHEET_ID)
                         ws_stock = sh_stock.sheet1
                         sh_link = GC.open_by_key(ACCOUNT_STATUS_SHEET_ID)
                         
-                        for item in selected_shops:
+                        for i, item in enumerate(selected_shops):
                             # ① 日記移動
                             ws_main = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[item['acc']])
                             main_data = ws_main.get_all_values()
@@ -264,7 +275,7 @@ with tab2:
                                 row = main_data[row_idx-1]
                                 if len(row) >= 2 and row[1] == item['shop']:
                                     ws_stock.append_row(["落ち店", "一括移動", row[5], row[6]])
-                                    time.sleep(1) # ここで time を使用
+                                    time.sleep(1) # これでエラーは出ません
                                     ws_main.delete_rows(row_idx)
 
                             # ② リンク削除
@@ -283,13 +294,18 @@ with tab2:
                                 new_name = b.name.replace(prefix, f"【落ち店】/{item['shop']}/")
                                 bucket.copy_blob(b, bucket, new_name)
                                 b.delete()
+                            
+                            progress_bar.progress((i + 1) / len(selected_shops))
                         
-                        st.success("完了！")
+                        st.success("🎉 移動完了しました！")
                         st.session_state.confirm_move = False
                         st.cache_data.clear()
                         time.sleep(1)
                         st.rerun()
-                    except Exception as e: st.error(f"エラー: {e}")
+
+                    except Exception as e:
+                        st.error(f"エラーが発生しました: {e}")
+                        st.session_state.confirm_move = False
         
 # =========================================================
 # --- Tab 3: 📂 投稿日記文管理 (変更検知・自動ソート版) ---
@@ -614,6 +630,7 @@ with tab6:
     else:
         if not show_all: st.info("表示するフォルダを選択してください。")
         else: st.info("画像が見つかりませんでした。")
+
 
 
 
