@@ -676,8 +676,8 @@ with tab6:
 
                 # 【2段目】物理削除ボタン（赤色で警告）
                 # ロックをかけるため、他の画像選択中は「保存」するまで目立つように表示
-                if c4.button(f"② 保存完了・物理削除実行", type="secondary", use_container_width=True, help="保存した後に必ず押してください。GCSから消去します。"):
-                    with st.spinner("物理削除中..."):
+                if c4.button(f"② 保存完了・削除実行", type="secondary", use_container_width=True, help="保存した後に必ず押してください。GCSから消去します。"):
+                    with st.spinner("削除中..."):
                         for n in selected_items:
                             bucket.blob(n).delete()
                         # 削除が終わったら選択状態をクリア
@@ -687,7 +687,7 @@ with tab6:
                         st.cache_data.clear()
                         st.rerun()
                 
-                st.warning("⚠️ **使い回し防止のため、保存が終わったら必ず「② 物理削除」を押して終了してください。**")
+                st.warning("⚠️ **使い回し防止のため、保存が終わったら必ず「② 削除」を押して終了してください。**")
             # ---------------------------------------
 
             st.write(f"**表示数: {len(display_imgs)}枚**")
@@ -703,3 +703,4 @@ with tab6:
             if not show_all: st.info("表示するフォルダを選択してください。")
 
     ochimise_grid_fragment(folders, show_all)
+
