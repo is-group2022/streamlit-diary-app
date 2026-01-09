@@ -148,77 +148,96 @@ try:
 except: pass
 
 # =========================================================
-# --- Tab 1: 📝 ① データ登録 (Fragment高速版) ---
+# --- Tab 1: 📝 ① データ登録 (完全リロード停止・安定版) ---
 # =========================================================
-@st.fragment
-def input_form_fragment():
-    # ヘッダー固定表示（HTML）
-    st.markdown("""
-        <div style="display: flex; flex-direction: row; border-bottom: 2px solid #444; background-color: #f0f2f6; padding: 10px; border-radius: 5px 5px 0 0;">
-            <div style="flex: 1; font-weight: bold;">時間</div>
-            <div style="flex: 1; font-weight: bold;">名前</div>
-            <div style="flex: 2; font-weight: bold;">タイトル</div>
-            <div style="flex: 3; font-weight: bold;">本文</div>
-            <div style="flex: 2; font-weight: bold;">画像</div>
-        </div>
-    """, unsafe_allow_html=True)
-
-    # 入力フォームの生成（40行）
-    for i in range(40):
-        cols = st.columns([1, 1, 2, 3, 2])
-        st.session_state.diary_entries[i]['投稿時間'] = cols[0].text_input(f"t{i}", key=f"t_{i}", label_visibility="collapsed")
-        st.session_state.diary_entries[i]['女の子の名前'] = cols[1].text_input(f"n{i}", key=f"n_{i}", label_visibility="collapsed")
-        st.session_state.diary_entries[i]['タイトル'] = cols[2].text_area(f"ti{i}", key=f"ti_{i}", height=68, label_visibility="collapsed")
-        st.session_state.diary_entries[i]['本文'] = cols[3].text_area(f"b{i}", key=f"b_{i}", height=68, label_visibility="collapsed")
-        st.session_state.diary_entries[i]['img'] = cols[4].file_uploader(f"g{i}", key=f"img_{i}", label_visibility="collapsed")
-
 with tab1:
     st.header("1️⃣ 新規データ登録")
     
-    # 基本情報
-    c1, c2, c3, c4 = st.columns(4)
-    target_acc = c1.selectbox("👤 投稿アカウント", POSTING_ACCOUNT_OPTIONS, key="sel_acc_1")
-    st.session_state.global_media = c2.selectbox("🌐 媒体", MEDIA_OPTIONS, key="sel_media_1")
-    global_area = c3.text_input("📍 エリア", key="in_area_1")
-    global_store = c4.text_input("🏢 店名", key="in_store_1")
-    
-    st.subheader("🔑 ログイン情報")
-    c5, c6 = st.columns(2)
-    login_id = c5.text_input("ID", key="login_id")
-    login_pw = c6.text_input("パスワード", key="login_pw")
-    
-    st.markdown("---")
-    st.subheader("📸 投稿内容入力")
-    
-    # Fragment呼び出し：この中での入力はAPI制限を消費しません
-    input_form_fragment()
+    # 💡 st.form を使うことで「送信ボタンを押すまで一切リロードしない」状態を作ります
+    with st.form("diary_input_form", clear_on_submit=False):
+        # 基本情報
+        c1, c2, c3, c4 = st.columns(4)
+        target_acc = c1.selectbox("👤 投稿アカウント", POSTING_ACCOUNT_OPTIONS, key="sel_acc_f")
+        target_media = c2.selectbox("🌐 媒体", MEDIA_OPTIONS, key="sel_media_f")
+        global_area = c3.text_input("📍 エリア", key="in_area_f")
+        global_store = c4.text_input("🏢 店名", key="in_store_f")
+        
+        st.subheader("🔑 ログイン情報")
+        c5, c6 = st.columns(2)
+        login_id = c5.text_input("ID", key="login_id_f")
+        login_pw = c6.text_input("パスワード", key="login_pw_f")
+        
+        st.markdown("---")
+        st.subheader("📸 投稿内容入力")
 
-    if st.button("🔥 データを登録する", type="primary", use_container_width=True):
-        valid_data = [e for e in st.session_state.diary_entries if e['投稿時間'] and e['女の子の名前']]
+        # ヘッダー固定表示（HTML）
+        st.markdown("""
+            <div style="display: flex; flex-direction: row; border-bottom: 2px solid #444; background-color: #f0f2f6; padding: 10px; border-radius: 5px 5px 0 0;">
+                <div style="flex: 1; font-weight: bold; color: black;">時間</div>
+                <div style="flex: 1; font-weight: bold; color: black;">名前</div>
+                <div style="flex: 2; font-weight: bold; color: black;">タイトル</div>
+                <div style="flex: 3; font-weight: bold; color: black;">本文</div>
+                <div style="flex: 2; font-weight: bold; color: black;">画像</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # フォーム内の入力を受け取るためのリスト
+        form_entries = []
+        for i in range(40):
+            cols = st.columns([1, 1, 2, 3, 2])
+            e_time = cols[0].text_input(f"t{i}", key=f"f_t_{i}", label_visibility="collapsed")
+            e_name = cols[1].text_input(f"n{i}", key=f"f_n_{i}", label_visibility="collapsed")
+            e_title = cols[2].text_area(f"ti{i}", key=f"f_ti_{i}", height=68, label_visibility="collapsed")
+            e_body = cols[3].text_area(f"b{i}", key=f"f_b_{i}", height=68, label_visibility="collapsed")
+            e_img = cols[4].file_uploader(f"g{i}", key=f"f_img_{i}", label_visibility="collapsed")
+            
+            form_entries.append({
+                '投稿時間': e_time, 
+                '女の子の名前': e_name, 
+                'タイトル': e_title, 
+                '本文': e_body, 
+                'img': e_img
+            })
+
+        # 💡 Form専用の送信ボタン（これ以外の操作ではリロードが発生しません）
+        submit_button = st.form_submit_button("🔥 データを一括登録する", type="primary", use_container_width=True)
+
+    # 送信ボタンが押された後の処理（ここからAPIが動く）
+    if submit_button:
+        valid_data = [e for e in form_entries if e['投稿時間'] and e['女の子の名前']]
         if not valid_data or not global_area or not global_store:
-            st.error("入力が不足しています")
-            st.stop()
+            st.error("⚠️ 入力不足：エリア、店名、および少なくとも1件以上の「時間・名前」を入力してください。")
+        else:
+            progress_text = st.empty()
+            try:
+                # 1. 画像アップロード
+                progress_text.info("📸 画像をアップロード中...")
+                for e in valid_data:
+                    if e['img']: 
+                        # 画像アップロード関数をそのまま使用（e['img']を渡す）
+                        gcs_upload_wrapper(e['img'], e, global_area, global_store)
+                
+                # 2. スプレッドシート（日記）登録
+                progress_text.info("📝 日記文を登録中...")
+                ws_main = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[target_acc])
+                rows_main = [[global_area, global_store, target_media, e['投稿時間'], e['女の子の名前'], e['タイトル'], e['本文']] for e in valid_data]
+                ws_main.append_rows(rows_main, value_input_option='USER_ENTERED')
+                
+                # 3. スプレッドシート（ステータス）登録
+                progress_text.info("🔐 ログイン情報を登録中...")
+                ws_status = STATUS_SPRS.worksheet(POSTING_ACCOUNT_SHEETS[target_acc])
+                ws_status.append_row([global_area, global_store, target_media, login_id, login_pw], value_input_option='USER_ENTERED')
+                
+                progress_text.empty()
+                st.success(f"✅ {len(valid_data)}件のデータを正常に登録しました！")
+                
+                # キャッシュを消去して他タブにも反映
+                st.cache_data.clear()
+                # 登録完了後に画面をクリアするためにリロード
+                st.rerun()
 
-        progress_text = st.empty()
-        try:
-            progress_text.info("📸 画像をアップロード中...")
-            for e in valid_data:
-                if e['img']: gcs_upload_wrapper(e['img'], e, global_area, global_store)
-            
-            progress_text.info("📝 日記文を登録中...")
-            ws_main = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[target_acc])
-            rows_main = [[global_area, global_store, st.session_state.global_media, e['投稿時間'], e['女の子の名前'], e['タイトル'], e['本文']] for e in valid_data]
-            ws_main.append_rows(rows_main, value_input_option='USER_ENTERED')
-            
-            progress_text.info("🔐 ログイン情報を登録中...")
-            ws_status = STATUS_SPRS.worksheet(POSTING_ACCOUNT_SHEETS[target_acc])
-            ws_status.append_row([global_area, global_store, st.session_state.global_media, login_id, login_pw], value_input_option='USER_ENTERED')
-            
-            st.success("✅ 正常に登録しました！")
-            st.cache_data.clear()
-            st.rerun()
-        except Exception as e:
-            st.error(f"APIエラー: {e}")
+            except Exception as e:
+                st.error(f"❌ 登録エラーが発生しました: {e}")
             
 # =========================================================
 # --- Tab 2: 📊 全アカウント店舗アカウント状況 (修正版) ---
@@ -669,6 +688,7 @@ with tab6:
     else:
         if not show_all: st.info("表示するフォルダを選択してください。")
         else: st.info("画像が見つかりませんでした。")
+
 
 
 
