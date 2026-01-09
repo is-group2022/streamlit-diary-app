@@ -37,32 +37,37 @@ except KeyError:
 REGISTRATION_HEADERS = ["エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文"]
 INPUT_HEADERS = ["投稿時間", "女の子の名前", "タイトル", "本文"]
 
-# --- 2. 各種API連携 (API制限対策版) ---
+# --- 2. 各種API連携 ---
 @st.cache_resource(ttl=3600)
 def get_gspread_client():
+    """スプレッドシートAPIのクライアントを作成"""
     return gspread.service_account_from_dict(st.secrets["gcp_service_account"])
 
-@st.cache_data(ttl=60) # 60秒間はAPIを叩かずキャッシュを使う
-def get_sheet_data(sheet_id, sheet_name=None):
-    client = get_gspread_client()
-    sh = client.open_by_key(sheet_id)
-    if sheet_name:
-        return sh.worksheet(sheet_name).get_all_values()
-    return sh
+@st.cache_resource(ttl=3600)
+def get_gcs_client():
+    """Google Cloud Storageのクライアントを作成"""
+    from google.cloud import storage
+    return storage.Client.from_service_account_info(st.secrets["gcp_service_account"])
 
 try:
+    # 1. まずクライアントを作成
     GC = get_gspread_client()
-    SPRS = GC.open_by_key(SHEET_ID)
-    # ここで全てのワークシートを一気に取得するのをやめ、必要な時だけ呼ぶようにします
     GCS_CLIENT = get_gcs_client()
+    
+    # 2. スプレッドシートを開く
+    SPRS = GC.open_by_key(SHEET_ID)
+    STATUS_SPRS = GC.open_by_key(ACCOUNT_STATUS_SHEET_ID)
+    
 except Exception as e:
-    # 429エラーが出た場合の親切なメッセージ
+    # 429エラー（制限超過）の場合は専用メッセージ
     if "429" in str(e):
         st.error("🚨 Google APIの制限を超えました。1分ほど待ってから再読み込みしてください。")
-        st.stop()
+    elif "name 'get_gcs_client'" in str(e):
+        st.error("🚨 関数定義が不足しています。修正コードを反映してください。")
     else:
-        st.error(f"❌ API接続失敗: {e}"); st.stop()
-
+        st.error(f"❌ API接続失敗: {e}")
+    st.stop()
+    
 def gcs_upload_wrapper(uploaded_file, entry, area, store):
     try:
         bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
@@ -654,6 +659,7 @@ with tab6:
     else:
         if not show_all: st.info("表示するフォルダを選択してください。")
         else: st.info("画像が見つかりませんでした。")
+
 
 
 
