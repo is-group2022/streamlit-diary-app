@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import gspread
 import zipfile
+import datetime
 import re
 from io import BytesIO
 from datetime import timedelta
@@ -82,12 +83,15 @@ def gcs_upload_wrapper(uploaded_file, entry, area, store):
         st.error(f"❌ GCSアップロード失敗: {e}")
         return False
 
-@st.cache_data(ttl=86400 * 7, show_spinner=False) # 7日間、スピナーなしで超高速化
+@st.cache_data(ttl=86400 * 7, show_spinner=False)
 def get_cached_url(blob_name):
-    # 同時アクセスの分散：誰か一人が生成すれば、他の人はキャッシュを見るだけ
-    bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
-    blob = bucket.blob(blob_name)
-    return blob.generate_signed_url(expiration=datetime.timedelta(days=7))
+    try:
+        bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(blob_name)
+        # 確実に datetime.timedelta を使用
+        return blob.generate_signed_url(expiration=datetime.timedelta(days=7))
+    except Exception as e:
+        return None
     
 # --- 3. UI 構築 ---
 st.set_page_config(layout="wide", page_title="写メ日記投稿管理")
@@ -682,4 +686,5 @@ with tab6:
 
     # 実行
     ochimise_action_fragment(folders, show_all)
+
 
