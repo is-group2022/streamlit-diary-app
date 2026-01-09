@@ -538,17 +538,43 @@ with tab4:
                 else:
                     st.info("画像がありません。")
 
-# --- Tab 5 ---
+# =========================================================
+# --- Tab 5: 📚 ⑤ 使用可能日記文 (API負荷軽減版) ---
+# =========================================================
 with tab5:
     st.header("5️⃣ 使用可能日記文")
-    try:
-        tmp_sprs = connect_to_gsheets(USABLE_DIARY_SHEET_ID)
-        tmp_ws = tmp_sprs.worksheet("【使用可能日記文】")
-        tmp_data = tmp_ws.get_all_values()
-        if len(tmp_data) > 1:
-            st.dataframe(pd.DataFrame(tmp_data[1:], columns=tmp_data[0]), use_container_width=True, height=600)
-    except Exception as e: st.error(f"読み込みエラー: {e}")
+    
+    # API制限対策：キャッシュを使って頻繁な読み込みを防止
+    @st.cache_data(ttl=600)  # 10分間はキャッシュを保持
+    def get_usable_diary_data(sheet_id):
+        # 既存のクライアント GC を使用
+        tmp_sprs = GC.open_by_key(sheet_id)
+        # シート名は secrets または定数で定義されたものを使用
+        tmp_ws = tmp_sprs.sheet1 
+        return tmp_ws.get_all_values()
 
+    try:
+        # 関数を呼び出してデータを取得
+        tmp_data = get_usable_diary_data("1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM")
+        
+        if len(tmp_data) > 1:
+            # 1行目をヘッダーとしてデータフレームを作成
+            df_usable = pd.DataFrame(tmp_data[1:], columns=tmp_data[0])
+            st.dataframe(df_usable, use_container_width=True, height=600, hide_index=True)
+        else:
+            st.info("表示できる日記文がありません。")
+
+    except Exception as e:
+        if "429" in str(e):
+            st.error("🚨 Google APIの制限を超えました。1分ほど待ってから再読み込みしてください。")
+        else:
+            st.error(f"読み込みエラー: {e}")
+
+    # 手動更新ボタン（キャッシュをクリアして再読み込み）
+    if st.button("🔄 データを最新に更新", key="refresh_tab5"):
+        st.cache_data.clear()
+        st.rerun()
+        
 # =========================================================
 # --- Tab 6: 🖼 ⑥ 使用可能画像（落ち店） 高速版 ---
 # =========================================================
@@ -642,6 +668,7 @@ with tab6:
     else:
         if not show_all: st.info("表示するフォルダを選択してください。")
         else: st.info("画像が見つかりませんでした。")
+
 
 
 
