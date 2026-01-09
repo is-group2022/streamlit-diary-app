@@ -434,18 +434,18 @@ with tab3:
         st.info("編集可能なデータはありません。")
         
 # =========================================================
-# --- Tab 4: 📸 ④ 投稿画像管理 (手動更新・Fragment高速版) ---
+# --- Tab 4: 📸 ④ 投稿画像管理 (API節約・Fragment版) ---
 # =========================================================
 with tab4:
     st.header("📸 投稿画像管理")
     
-    # 1. 階層構造取得のキャッシュ化（update_tickで制御）
-    @st.cache_data
-    def get_gcs_hierarchy_v8(update_tick):
+    # --- 1. エリア・店舗リスト取得をキャッシュ化 (API消費を最小限に) ---
+    @st.cache_data(show_spinner=False)
+    def get_gcs_hierarchy_v9(update_tick):
         try:
-            # delimiter='/' を使って効率的に取得
+            # delimiter='/' を使い、階層を絞って効率的にスキャン
             blobs = GCS_CLIENT.list_blobs(GCS_BUCKET_NAME, prefix="", delimiter='/')
-            list(blobs) # イテレータを回す
+            list(blobs) 
             areas = [p.replace("/", "") for p in blobs.prefixes if "【落ち店】" not in p and p != "/"]
             
             hierarchy = {}
@@ -456,53 +456,53 @@ with tab4:
             return hierarchy
         except: return {}
 
-    # セッション管理（更新用キー）
-    if 'tab4_hierarchy_tick' not in st.session_state:
-        st.session_state.tab4_hierarchy_tick = 0
+    if 'tab4_tick' not in st.session_state:
+        st.session_state.tab4_tick = 0
 
-    # 更新ボタン
+    # リスト更新ボタン
     col_ref, _ = st.columns([1.5, 4])
-    if col_ref.button("🔄 エリア・店舗リストを更新", key="ref_hierarchy_4"):
-        st.session_state.tab4_hierarchy_tick += 1
+    if col_ref.button("🔄 エリア・店舗リストを更新", key="ref_hierarchy_4_v9"):
+        st.session_state.tab4_tick += 1
         st.cache_data.clear()
         st.rerun()
 
-    hierarchy = get_gcs_hierarchy_v8(st.session_state.tab4_hierarchy_tick)
+    hierarchy = get_gcs_hierarchy_v9(st.session_state.tab4_tick)
 
     if hierarchy:
         c_sel1, c_sel2 = st.columns(2)
-        selected_area = c_sel1.selectbox("📍 エリア", ["選択してください"] + list(hierarchy.keys()), key="sel_area_4")
+        selected_area = c_sel1.selectbox("📍 エリア", ["選択してください"] + list(hierarchy.keys()), key="sel_area_4_v9")
         
         if selected_area != "選択してください":
             store_paths = hierarchy[selected_area]
             store_options = {p.split('/')[-2]: p for p in store_paths}
-            selected_store_name = c_sel2.selectbox("🏢 店舗", ["選択してください"] + list(store_options.keys()), key="sel_store_4")
+            selected_store_name = c_sel2.selectbox("🏢 店舗", ["選択してください"] + list(store_options.keys()), key="sel_store_4_v9")
 
             if selected_store_name != "選択してください":
                 target_path = store_options[selected_store_name]
                 active_bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
 
-                # --- 削除・選択ロジックを独立させるFragment ---
+                # --- 2. 画像操作Fragment (ここがAPI制限を回避する核です) ---
                 @st.fragment
-                def image_grid_fragment(path, store_name):
-                    # 画像リスト取得（ここはキャッシュを利用）
-                    blobs = list(active_bucket.list_blobs(prefix=path))
-                    img_names = [bl.name for bl in blobs if bl.name != path and bl.name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
+                def image_grid_fragment_v9(path, store_name):
+                    # 画像リスト取得（API負荷軽減のためキャッシュを利用）
+                    @st.cache_data(ttl=600, show_spinner=False)
+                    def get_images_in_store(p):
+                        blobs = list(active_bucket.list_blobs(prefix=p))
+                        return [bl.name for bl in blobs if bl.name != p and bl.name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
+                    
+                    img_names = get_images_in_store(path)
 
                     if not img_names:
                         st.info("画像がありません。")
                         return
 
-                    search_query = st.text_input("🔍 名前で検索", key="search_4_v8")
+                    search_query = st.text_input("🔍 名前で検索", key="search_4_v9_f")
                     display_names = [n for n in img_names if search_query.lower() in n.split('/')[-1].lower()]
 
-                    # 操作ボタン
+                    # 操作ボタン（UIと仕様はそのまま維持）
                     btn_c1, btn_c2, btn_c3, btn_c4 = st.columns([1, 1, 2, 2])
-                    
-                    # 複数選択の管理は session_state を利用
                     selected_items = [n for n in display_names if st.session_state.get(f"del_4_{n}")]
 
-                    # 一括ダウンロード処理 (ZIP)
                     if selected_items:
                         if len(selected_items) == 1:
                             btn_c3.download_button("💾 1枚保存", active_bucket.blob(selected_items[0]).download_as_bytes(), file_name=selected_items[0].split('/')[-1], type="primary", use_container_width=True)
@@ -516,7 +516,6 @@ with tab4:
                         if btn_c4.button(f"🗑 {len(selected_items)}枚削除", type="secondary", use_container_width=True):
                             st.session_state.confirm_del_4 = True
 
-                    # 削除確認
                     if st.session_state.get("confirm_del_4"):
                         st.error("⚠️ 本当に削除しますか？")
                         if st.button("⭕ 実行"):
@@ -527,28 +526,28 @@ with tab4:
 
                     st.markdown(f"**表示中: {len(display_names)} 枚**")
                     
-                    # 画像グリッド（8列）
+                    # 画像グリッド（API消費の多いURL生成をキャッシュでスキップ）
                     cols = st.columns(8)
                     for idx, b_name in enumerate(display_names):
                         with cols[idx % 8]:
-                            # 💡 有効期限を最大(7日間)に設定したURL取得（別関数で定義済みと想定）
-                            # get_cached_urlの中で expiration=datetime.timedelta(days=7) に変更してください
+                            # get_cached_url (有効期限7日間) を使用
                             st.image(get_cached_url(b_name), use_container_width=True)
                             st.caption(b_name.split('/')[-1])
                             st.checkbox("選", key=f"del_4_{b_name}", label_visibility="collapsed")
 
                 # Fragment実行
-                image_grid_fragment(target_path, selected_store_name)
+                image_grid_fragment_v9(target_path, selected_store_name)
 
-                # アップロードはFragmentの外で管理（フォルダ構成が変わる可能性があるため）
+                # アップロード機能（Fragment外に配置しUIを維持）
                 with st.expander("➕ 画像をこの店舗に追加"):
-                    up_files = st.file_uploader("画像をドロップ", accept_multiple_files=True, type=["jpg","jpeg","png","webp"])
-                    if st.button("🚀 アップロード開始"):
+                    up_files = st.file_uploader("画像をドロップ", accept_multiple_files=True, type=["jpg","jpeg","png","webp"], key="uploader_4")
+                    if st.button("🚀 アップロード開始", key="up_btn_4"):
                         if up_files:
                             for f in up_files:
                                 active_bucket.blob(f"{target_path}{f.name}").upload_from_string(f.getvalue(), content_type=f.type)
                             st.cache_data.clear()
                             st.rerun()
+
 # =========================================================
 # --- Tab 5: 📚 ⑤ 使用可能日記文 (手動更新・API負荷最小版) ---
 # =========================================================
@@ -686,5 +685,6 @@ with tab6:
 
     # 実行
     ochimise_action_fragment(folders, show_all)
+
 
 
