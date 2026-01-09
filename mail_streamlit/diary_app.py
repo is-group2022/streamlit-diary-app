@@ -37,19 +37,65 @@ except KeyError:
 REGISTRATION_HEADERS = ["エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文"]
 INPUT_HEADERS = ["投稿時間", "女の子の名前", "タイトル", "本文"]
 
-# --- 2. 各種API連携 ---
+承知いたしました。ご要望通り、API連携部分の構造を正しく修正し、それ以外のロジックやUI、画像処理などは一切変えずに反映したフルコードです。
+
+このコードでは、大元の「不動産屋（GC）」を定義することで、Tab 2 で発生していたエラーを確実に解消しています。
+
+Python
+
+import streamlit as st
+import pandas as pd
+import gspread
+import zipfile
+import re
+import time
+from io import BytesIO
+from google.oauth2.service_account import Credentials
+from google.cloud import storage 
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
+
+# --- 1. 定数と初期設定 ---
+try:
+    SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"] 
+    ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
+    USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
+    
+    GCS_BUCKET_NAME = "auto-poster-images"
+
+    SHEET_NAMES = st.secrets["sheet_names"]
+    POSTING_ACCOUNT_SHEETS = {
+        "A": "投稿Aアカウント",
+        "B": "投稿Bアカウント",
+        "C": "投稿Cアカウント",
+        "D": "投稿Dアカウント"
+    }
+    
+    USABLE_DIARY_SHEET = "【使用可能日記文】"
+    MEDIA_OPTIONS = ["駅ちか", "デリじゃ"]
+    POSTING_ACCOUNT_OPTIONS = ["A", "B", "C", "D"] 
+    
+    SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/cloud-platform']
+except KeyError:
+    st.error("🚨 secrets.tomlの設定を確認してください。")
+    st.stop()
+
+REGISTRATION_HEADERS = ["エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文"]
+INPUT_HEADERS = ["投稿時間", "女の子の名前", "タイトル", "本文"]
+
+# --- 2. 各種API連携 (修正済み：GCを定義) ---
 @st.cache_resource(ttl=3600)
-def connect_to_gsheets(sheet_id):
-    client = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
-    return client.open_by_key(sheet_id)
+def get_gspread_client():
+    return gspread.service_account_from_dict(st.secrets["gcp_service_account"])
 
 @st.cache_resource(ttl=3600)
 def get_gcs_client():
     return storage.Client.from_service_account_info(st.secrets["gcp_service_account"])
 
 try:
-    SPRS = connect_to_gsheets(SHEET_ID)
-    STATUS_SPRS = connect_to_gsheets(ACCOUNT_STATUS_SHEET_ID) 
+    GC = get_gspread_client()  # 不動産屋（Client）
+    SPRS = GC.open_by_key(SHEET_ID)  # 家1（Spreadsheet）
+    STATUS_SPRS = GC.open_by_key(ACCOUNT_STATUS_SHEET_ID)  # 家2（Spreadsheet）
     GCS_CLIENT = get_gcs_client()
 except Exception as e:
     st.error(f"❌ API接続失敗: {e}"); st.stop()
@@ -680,6 +726,7 @@ with tab6:
     else:
         if not show_all: st.info("表示するフォルダを選択してください。")
         else: st.info("画像が見つかりませんでした。")
+
 
 
 
