@@ -587,14 +587,14 @@ with tab5:
             st.error(f"読み込みエラー: {e}")
         
 # =========================================================
-# --- Tab 6: 🖼 ⑥ 使用可能画像（落ち店） 高速版 ---
+# --- Tab 6: 🖼 ⑥ 使用可能画像（落ち店） 2段構え削除版 ---
 # =========================================================
 with tab6:
-    st.header("🖼 使用可能画像ブラウザ（落ち店）")
+    st.header("🖼 使用可能画像（落ち店）")
     
     ROOT_PATH = "【落ち店】/"
 
-    # 1. フォルダリスト取得のキャッシュ化（手動更新ボタン対応）
+    # 1. フォルダリスト取得のキャッシュ化
     @st.cache_data
     def get_ochimise_folders_v8(update_tick):
         try:
@@ -603,11 +603,9 @@ with tab6:
             return blobs.prefixes
         except: return []
 
-    # セッション管理（更新用キー）
     if 'tab6_hierarchy_tick' not in st.session_state:
         st.session_state.tab6_hierarchy_tick = 0
 
-    # 更新ボタン（フォルダ構成が変わった時用）
     col_ref, _ = st.columns([1.5, 4])
     if col_ref.button("🔄 フォルダリストを更新", key="ref_hierarchy_6"):
         st.session_state.tab6_hierarchy_tick += 1
@@ -615,19 +613,16 @@ with tab6:
         st.rerun()
 
     folders = get_ochimise_folders_v8(st.session_state.tab6_hierarchy_tick)
-
-    # 2. 表示モードの選択
     show_all = st.checkbox("📂 全画像表示（全ての店舗をまとめて表示）", key="show_all_ochimise")
 
-    # --- 画像グリッドと操作を独立させるFragment ---
     @st.fragment
     def ochimise_grid_fragment(folders, show_all):
         bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
         target_images = []
         current_label = "落ち店"
 
+        # --- 画像リスト取得 ---
         if show_all:
-            # 全表示モード（キャッシュ利用）
             @st.cache_data(ttl=600)
             def get_all_ochimise_images():
                 blobs = list(bucket.list_blobs(prefix=ROOT_PATH))
@@ -635,7 +630,6 @@ with tab6:
             target_images = get_all_ochimise_images()
             current_label = "全店舗一括"
         elif folders:
-            # 店舗選択モード
             folder_opts = {f.replace(ROOT_PATH, "").replace("/", ""): f for f in folders}
             selected_key = st.selectbox("📁 店舗フォルダを選択", ["選択してください"] + list(folder_opts.keys()), key="sel_ochimise_folder_f")
             if selected_key != "選択してください":
@@ -649,10 +643,10 @@ with tab6:
             search_q = st.text_input("🔍 名前で検索 (落ち店内)", key="search_6_f")
             display_imgs = [n for n in target_images if search_q.lower() in n.split('/')[-1].lower()]
 
-            # 操作ボタン
+            # ボタン配置用のカラム
             c1, c2, c3, c4 = st.columns([1, 1, 2, 2])
-            selected_items = [n for n in display_imgs if st.session_state.get(f"sel_6_{n}")]
-
+            
+            # 全選択・解除
             if c1.button("✅ 全選択", key="all_6_f", use_container_width=True):
                 for n in display_imgs: st.session_state[f"sel_6_{n}"] = True
                 st.rerun()
@@ -660,27 +654,45 @@ with tab6:
                 for n in display_imgs: st.session_state[f"sel_6_{n}"] = False
                 st.rerun()
 
+            selected_items = [n for n in display_imgs if st.session_state.get(f"sel_6_{n}")]
+
+            # --- 🔥 ここからが2段構えのロジック ---
             if selected_items:
-                # ダウンロード（ZIPまたは単体）
-                if len(selected_items) == 1:
-                    path = selected_items[0]
-                    c3.download_button("💾 1枚保存", bucket.blob(path).download_as_bytes(), file_name=path.split('/')[-1], type="primary", use_container_width=True)
-                else:
-                    zip_buf = BytesIO()
-                    with zipfile.ZipFile(zip_buf, "w") as zf:
-                        for p in selected_items:
-                            zf.writestr(f"落ち店_{current_label}/{p.split('/')[-1]}", bucket.blob(p).download_as_bytes())
-                    c3.download_button(f"⬇️ {len(selected_items)}枚ZIP保存", zip_buf.getvalue(), file_name=f"落ち店_{current_label}.zip", type="primary", use_container_width=True)
+                # 1. まずZIPを作成
+                zip_buf = BytesIO()
+                with zipfile.ZipFile(zip_buf, "w") as zf:
+                    for p in selected_items:
+                        zf.writestr(f"落ち店_{current_label}/{p.split('/')[-1]}", bucket.blob(p).download_as_bytes())
                 
-                # 削除ボタン
-                if c4.button(f"🗑 {len(selected_items)}枚を完全削除", use_container_width=True, type="secondary"):
-                    for n in selected_items: bucket.blob(n).delete()
-                    st.cache_data.clear()
-                    st.rerun()
+                # 【1段目】保存ボタン
+                c3.download_button(
+                    label=f"① {len(selected_items)}枚を保存(ZIP)",
+                    data=zip_buf.getvalue(),
+                    file_name=f"落ち店_{current_label}.zip",
+                    type="primary",
+                    use_container_width=True,
+                    key="dl_btn_6"
+                )
+
+                # 【2段目】物理削除ボタン（赤色で警告）
+                # ロックをかけるため、他の画像選択中は「保存」するまで目立つように表示
+                if c4.button(f"② 保存完了・物理削除実行", type="secondary", use_container_width=True, help="保存した後に必ず押してください。GCSから消去します。"):
+                    with st.spinner("物理削除中..."):
+                        for n in selected_items:
+                            bucket.blob(n).delete()
+                        # 削除が終わったら選択状態をクリア
+                        for n in selected_items:
+                            st.session_state[f"sel_6_{n}"] = False
+                        st.success(f"✅ {len(selected_items)}枚を完全に消去しました。")
+                        st.cache_data.clear()
+                        st.rerun()
+                
+                st.warning("⚠️ **使い回し防止のため、保存が終わったら必ず「② 物理削除」を押して終了してください。**")
+            # ---------------------------------------
 
             st.write(f"**表示数: {len(display_imgs)}枚**")
 
-            # 画像グリッド
+            # 画像グリッド（選択中はチェックボックスをいじらせない等の工夫も可能ですが、まずはシンプルに）
             cols = st.columns(8)
             for idx, b_name in enumerate(display_imgs):
                 with cols[idx % 8]:
@@ -690,6 +702,4 @@ with tab6:
         else:
             if not show_all: st.info("表示するフォルダを選択してください。")
 
-    # Fragment実行
     ochimise_grid_fragment(folders, show_all)
-
