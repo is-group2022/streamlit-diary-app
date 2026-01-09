@@ -306,7 +306,7 @@ with tab2:
                         st.error(f"エラー: {e}")
         
 # =========================================================
-# --- Tab 3: 📂 投稿日記文管理 (変更検知・自動ソート版) ---
+# --- Tab 3: 📂 ③ 投稿日記文管理 (変更検知・エラー防止版) ---
 # =========================================================
 with tab3:
     st.markdown("### 📂 投稿日記文管理 (一括編集)")
@@ -316,6 +316,14 @@ with tab3:
         # 1. 元データの作成
         df_orig = pd.DataFrame(combined_data, columns=["アカウント", "行番号"] + REGISTRATION_HEADERS)
         
+        # --- API/エラー対策：セッションデータの整合性チェック ---
+        if 'edited_df_3' in st.session_state:
+            # セッション内の行数と、現在のスプレッドシートの行数が違う場合は強制リセット
+            if len(st.session_state.edited_df_3) != len(df_orig):
+                del st.session_state.edited_df_3
+                st.rerun() # 安全のために一度再描画
+        # -----------------------------------------------
+
         # 2. 検索・フィルタ機能
         c_search1, c_search2 = st.columns([1, 2])
         filter_acc = c_search1.multiselect("👤 アカウントで絞り込み", POSTING_ACCOUNT_OPTIONS, key="filter_acc_3")
@@ -327,21 +335,27 @@ with tab3:
 
         working_df = st.session_state.edited_df_3.copy()
 
-        # 4. 変更をチェックしてフラグを立てる
-        # 元のデータと比較して1箇所でも違えば True
-        diff_mask = (working_df != df_orig).any(axis=1)
+        # 4. 変更をチェックしてフラグを立てる (ValueError対策済み)
+        # 万が一ズレていてもエラーにならないよう try-except で囲む
+        try:
+            diff_mask = (working_df != df_orig).any(axis=1)
+        except ValueError:
+            # もし形状が合わなければセッションを消してリロード
+            del st.session_state.edited_df_3
+            st.rerun()
+
         working_df.insert(0, "状態", diff_mask.map({True: "🔴 変更あり", False: "ー"}))
 
-        # 5. ソート（変更ありを一番上、次にアカウント順）
+        # 5. ソート
         working_df = working_df.sort_values(by=["状態", "アカウント"], ascending=[False, True])
 
-        # 6. フィルタリング実行
+        # 6. フィルタリング
         if filter_acc:
             working_df = working_df[working_df["アカウント"].isin(filter_acc)]
         if filter_text:
             working_df = working_df[working_df.astype(str).apply(lambda x: filter_text.lower() in x.str.lower().any(), axis=1)]
 
-        # 7. 表示スタイリング（変更箇所の行を赤くする）
+        # 7. スタイリング
         def highlight_changes(row):
             if row["状態"] == "🔴 変更あり":
                 return ['background-color: #ffebee; color: #b71c1c; font-weight: bold'] * len(row)
@@ -359,8 +373,7 @@ with tab3:
             height=600
         )
 
-        # セッション状態の更新（再描画時に変更を維持するため）
-        # ※ st.data_editor の戻り値から「状態」列を除いて保存
+        # セッション状態の更新
         st.session_state.edited_df_3 = new_edited_df.drop(columns=["状態"])
 
         # 9. 保存処理
@@ -372,6 +385,7 @@ with tab3:
                 st.warning("変更された箇所がありません。")
             else:
                 with st.spinner("スプレッドシートを更新中..."):
+                    import time
                     try:
                         for acc_code in POSTING_ACCOUNT_OPTIONS:
                             acc_changes = changed_rows[changed_rows["アカウント"] == acc_code]
@@ -380,23 +394,23 @@ with tab3:
                             ws = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[acc_code])
                             for _, row in acc_changes.iterrows():
                                 row_idx = int(row["行番号"])
-                                # 保存時は元のヘッダー順に並べ替え
                                 update_values = [str(row[h]) for h in REGISTRATION_HEADERS]
                                 ws.update(f"A{row_idx}:G{row_idx}", [update_values], value_input_option='USER_ENTERED')
+                                time.sleep(1.2) # API 429エラー対策（重要）
                         
-                        st.success(f"🎉 {len(changed_rows)}件の変更を保存しました！")
-                        # 保存後はキャッシュとセッションをクリアして最新化
+                        st.success(f"🎉 保存完了！")
                         if 'edited_df_3' in st.session_state: del st.session_state.edited_df_3
+                        st.cache_data.clear()
                         st.rerun()
                     except Exception as e:
                         st.error(f"保存エラー: {e}")
 
-        if c_save1.button("🔄 編集をリセット", use_container_width=False):
+        if c_save1.button("🔄 編集をリセット"):
             if 'edited_df_3' in st.session_state: del st.session_state.edited_df_3
             st.rerun()
-
     else:
         st.info("編集可能なデータはありません。")
+        
 # =========================================================
 # --- Tab 4: 📸 ④ 投稿画像管理 (ハイブリッド・ダウンロード版) ---
 # =========================================================
@@ -628,6 +642,7 @@ with tab6:
     else:
         if not show_all: st.info("表示するフォルダを選択してください。")
         else: st.info("画像が見つかりませんでした。")
+
 
 
 
