@@ -221,7 +221,7 @@ with tab1:
             st.error(f"APIエラーが発生しました。時間を置いて再度試してください。詳細: {e}")
             
 # =========================================================
-# --- Tab 2: 📊 全アカウント店舗アカウント状況 (落ち店移動機能・安定版) ---
+# --- Tab 2: 📊 全アカウント店舗アカウント状況 (落ち店移動機能・決定版) ---
 # =========================================================
 with tab2:
     st.markdown("## 📊 全アカウント店舗アカウント状況")
@@ -278,18 +278,24 @@ with tab2:
                     status_text = st.empty()
                     
                     try:
-                        # --- 修正ポイント：認証済みクライアントを安全に取得 ---
-                        # 既存のSPRS（gspread.models.Spreadsheet）から、認証済みのgspreadクライアントを取得します
-                        authorized_client = SPRS.client if hasattr(SPRS.client, 'open_by_key') else SPRS.spreadsheet.client
+                        # --- 修正ポイント：gspreadクライアントを「力技」で特定 ---
+                        # SPRSがWorksheetなら .spreadsheet.client、Spreadsheetなら .client を使う
+                        if hasattr(SPRS, 'spreadsheet'):
+                            authorized_client = SPRS.spreadsheet.client
+                        elif hasattr(SPRS, 'client'):
+                            authorized_client = SPRS.client
+                        else:
+                            # どちらもダメな場合の最終手段（例外へ飛ばす）
+                            raise AttributeError("Google API Clientが見つかりません。")
                         
                         # スプレッドシートIDの定義
-                        SS_STOCK = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM" # 日記ストック
-                        SS_LINK = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM" # 紐付け
+                        SS_STOCK_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM" # 日記ストック
+                        SS_LINK_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM" # 紐付け
                         
-                        # 新しいクライアント経由でスプレッドシートを開く
-                        sh_stock = authorized_client.open_by_key(SS_STOCK)
+                        # IDからスプレッドシートを開く
+                        sh_stock = authorized_client.open_by_key(SS_STOCK_ID)
                         ws_stock = sh_stock.sheet1
-                        sh_link = authorized_client.open_by_key(SS_LINK)
+                        sh_link = authorized_client.open_by_key(SS_LINK_ID)
                         
                         for i, item in enumerate(selected_shops):
                             status_text.info(f"処理中 ({i+1}/{len(selected_shops)}): {item['shop']}")
@@ -297,12 +303,15 @@ with tab2:
                             # --- ① 日記文の移動 ---
                             ws_main = SPRS.worksheet(POSTING_ACCOUNT_SHEETS[item['acc']])
                             main_data = ws_main.get_all_values()
+                            # 逆順ループ
                             for row_idx in range(len(main_data), 0, -1):
                                 row = main_data[row_idx-1]
-                                if len(row) >= 7 and row[0] == item['area'] and row[1] == item['shop']:
-                                    title, body = row[5], row[6]
+                                if len(row) >= 2 and row[0] == item['area'] and row[1] == item['shop']:
+                                    # タイトル(F:6番目), 本文(G:7番目)
+                                    title = row[5] if len(row) >= 6 else ""
+                                    body = row[6] if len(row) >= 7 else ""
                                     ws_stock.append_row(["落ち店", "一括移動", title, body])
-                                    time.sleep(1.0) # API制限をより安全に回避
+                                    time.sleep(1.2) # API制限をより慎重に回避
                                     ws_main.delete_rows(row_idx)
                                     break
 
@@ -311,7 +320,7 @@ with tab2:
                             link_data = ws_link.get_all_values()
                             for row_idx in range(len(link_data), 0, -1):
                                 row = link_data[row_idx-1]
-                                if len(row) >= 3 and row[0] == item['area'] and row[1] == item['shop']:
+                                if len(row) >= 2 and row[0] == item['area'] and row[1] == item['shop']:
                                     ws_link.delete_rows(row_idx)
                                     break
 
@@ -337,6 +346,7 @@ with tab2:
                         
                         st.success("🎉 全ての移動処理が完了しました！")
                         st.session_state.confirm_move = False
+                        # チェックを解除
                         for item in selected_shops: st.session_state[item['key']] = False
                         st.cache_data.clear()
                         st.rerun()
@@ -674,6 +684,7 @@ with tab6:
     else:
         if not show_all: st.info("表示するフォルダを選択してください。")
         else: st.info("画像が見つかりませんでした。")
+
 
 
 
