@@ -285,94 +285,94 @@ with tab4:
 with tab5:
     st.header("🖼 使用可能画像ブラウザ（落ち店）")
 
-    # セッション状態の初期化（選択された画像のパスを保持）
+    # 1. セッション状態の初期化
     if 'selected_images' not in st.session_state:
         st.session_state.selected_images = set()
 
-    ROOT_PATH = "【落ち店】/"  # フォルダ名に合わせて修正
+    ROOT_PATH = "【落ち店】/" 
 
-    # --- フォルダ一覧を取得 ---
+    # 2. 画像表示を高速化するためのキャッシュ機能
+    @st.cache_data(ttl=600) # 10分間URLを使い回す
+    def get_cached_url(blob_name):
+        bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(blob_name)
+        return blob.generate_signed_url(version="v4", expiration=600, method="GET")
+
+    # 3. GCSからデータ取得
     try:
         bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
         blobs = GCS_CLIENT.list_blobs(GCS_BUCKET_NAME, prefix=ROOT_PATH, delimiter='/')
         list(blobs) 
         folders = blobs.prefixes
     except Exception as e:
-        st.error(f"GCS接続エラー: {e}")
+        st.error(f"GCSエラー: {e}")
         folders = []
 
-    # --- サイドバー的あるいは上部に「選択中の枚数」と「操作ボタン」を表示 ---
+    # 4. 操作パネル（上部に固定気味に配置）
     if st.session_state.selected_images:
         count = len(st.session_state.selected_images)
-        st.success(f"現在 {count} 枚の画像を選択中")
+        st.info(f"✅ {count} 枚選択中")
         
-        c1, c2 = st.columns(2)
+        col1, col2 = st.columns(2)
         
-        # 1. ダウンロード & 削除処理
-        zip_buffer = BytesIO()
-        with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-            for img_path in list(st.session_state.selected_images):
-                blob = bucket.blob(img_path)
-                data = blob.download_as_bytes()
-                zip_file.writestr(img_path.split("/")[-1], data)
+        # ZIP作成（内部フォルダ名を「落ち店ダウンロード」に設定）
+        zip_buf = BytesIO()
+        with zipfile.ZipFile(zip_buf, "w") as zf:
+            for path in st.session_state.selected_images:
+                b = bucket.blob(path)
+                # ZIP内のパスを「落ち店ダウンロード/ファイル名」にする
+                zf.writestr(f"落ち店ダウンロード/{path.split('/')[-1]}", b.download_as_bytes())
 
-        if c1.download_button(
-            label="⬇️ 選択した画像をZIPで保存してGCSから削除",
-            data=zip_buffer.getvalue(),
-            file_name="downloaded_images.zip",
+        if col1.download_button(
+            "⬇️ フォルダ形式でダウンロードしてGCSから削除",
+            data=zip_buf.getvalue(),
+            file_name="落ち店ダウンロード.zip",
             mime="application/zip",
             use_container_width=True,
             type="primary"
         ):
-            # ダウンロードが実行されたらGCSから削除
-            for img_path in list(st.session_state.selected_images):
-                bucket.blob(img_path).delete()
-            # セッションをクリアしてリロード
+            for path in st.session_state.selected_images:
+                bucket.blob(path).delete()
+            st.session_state.selected_images = set()
+            st.cache_data.clear() # 削除したのでキャッシュを消す
+            st.rerun()
+
+        if col2.button("🗑 選択をクリア", use_container_width=True):
             st.session_state.selected_images = set()
             st.rerun()
 
-        if c2.button("🗑 選択をすべて解除", use_container_width=True):
-            st.session_state.selected_images = set()
-            st.rerun()
-
-    st.markdown("---")
-
-    # --- フォルダ・画像表示エリア ---
+    # 5. 画像一覧の表示（クリック選択UI）
     if folders:
-        folder_options = {f.replace(ROOT_PATH, "").replace("/", ""): f for f in folders}
-        selected_key = st.selectbox("📁 表示するフォルダ（店舗）を選択", ["選択してください"] + list(folder_options.keys()))
+        folder_opts = {f.replace(ROOT_PATH, "").replace("/", ""): f for f in folders}
+        selected_key = st.selectbox("📁 店舗フォルダを選択", ["選択してください"] + list(folder_opts.keys()))
         
         if selected_key != "選択してください":
-            target_path = folder_options[selected_key]
-            images = list(bucket.list_blobs(prefix=target_path))
-            valid_extensions = ('.jpg', '.jpeg', '.png', '.webp', '.gif')
-            image_blobs = [b for b in images if b.name.lower().endswith(valid_extensions)]
+            target = folder_opts[selected_key]
+            blobs = list(bucket.list_blobs(prefix=target))
+            image_blobs = [b for b in blobs if b.name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
             
             if image_blobs:
-                cols = st.columns(3)
-                for idx, blob in enumerate(image_blobs):
-                    with cols[idx % 3]:
-                        # 署名付きURLを発行
-                        img_url = blob.generate_signed_url(version="v4", expiration=3600, method="GET")
+                # 8列で小さく表示
+                cols = st.columns(8)
+                for idx, b in enumerate(image_blobs):
+                    with cols[idx % 8]:
+                        img_url = get_cached_url(b.name)
+                        
+                        # 選択中なら枠線をつける等の視覚効果
+                        is_sel = b.name in st.session_state.selected_images
+                        btn_label = "✅" if is_sel else "⬜️"
+                        
+                        # 画像を表示
                         st.image(img_url, use_container_width=True)
                         
-                        # チェックボックス（セッション状態を反映）
-                        is_checked = blob.name in st.session_state.selected_images
-                        if st.checkbox(f"選択: {blob.name.split('/')[-1]}", value=is_checked, key=f"check_{blob.name}"):
-                            st.session_state.selected_images.add(blob.name)
-                        else:
-                            st.session_state.selected_images.discard(blob.name)
+                        # 画像のすぐ下のボタンをクリックして選択（ここが一番軽い）
+                        if st.button(btn_label, key=f"btn_{b.name}", use_container_width=True):
+                            if is_sel:
+                                st.session_state.selected_images.discard(b.name)
+                            else:
+                                st.session_state.selected_images.add(b.name)
+                            st.rerun()
             else:
-                st.info("このフォルダ内に画像が見つかりませんでした。")
+                st.info("画像なし")
     else:
-        st.warning(f"'{ROOT_PATH}' 内にフォルダが見つかりません。")
-
-
-
-
-
-
-
-
-
-
+        st.warning("フォルダが見つかりません")
