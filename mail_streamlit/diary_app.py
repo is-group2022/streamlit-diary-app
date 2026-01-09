@@ -547,7 +547,7 @@ with tab4:
                                 active_bucket.blob(f"{target_path}{f.name}").upload_from_string(f.getvalue(), content_type=f.type)
                             st.cache_data.clear()
                             st.rerun()
-
+                            
 # =========================================================
 # --- Tab 5: 📚 ⑤ 使用可能日記文 (手動更新・API負荷最小版) ---
 # =========================================================
@@ -685,6 +685,7 @@ with tab6:
 
     # 実行
     ochimise_action_fragment(folders, show_all)
+
 
 
 
