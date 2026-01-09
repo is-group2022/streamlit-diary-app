@@ -53,60 +53,85 @@ GC, GCS_CLIENT = get_clients()
 SPRS = GC.open_by_key(SHEET_ID)
 
 # --- 4. UI構築 ---
-st.set_page_config(layout="wide", page_title="写メ日記エディタ")
+# initial_sidebar_state="expanded" でサイドバーを最初から開く設定に
+st.set_page_config(
+    layout="wide", 
+    page_title="写メ日記エディタ",
+    initial_sidebar_state="expanded" 
+)
 
 # カスタムCSS
 st.markdown("""
     <style>
-    .main { background-color: #f0f2f6; }
+    /* ヘッダーを消す */
     [data-testid="stHeader"] { display: none; }
-    /* 本文の入力欄のフォントサイズ調整 */
+    
+    /* サイドバー自体の背景色を少し変えて存在感を出す */
+    [data-testid="stSidebar"] {
+        background-color: #f8f9fa;
+        border-right: 1px solid #e0e0e0;
+    }
+    
+    /* 本文の入力欄 */
     .stTextArea textarea { font-size: 14px; line-height: 1.5; }
-    .stMetric { background-color: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 10px; }
+    
+    /* カードの区切り */
+    .diary-entry {
+        border-bottom: 2px solid #eee;
+        padding-bottom: 20px;
+        margin-bottom: 20px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
 def main():
-    st.title("📸 写メ日記エディタ Pro")
-    
-    # --- サイドバー選択 (縮小しても消えにくい構成) ---
+    # サイドバーにすべての選択要素を配置
     with st.sidebar:
-        st.header("⚙️ 選択パネル")
-        # ラジオボタンだと横幅が狭い時に隠れるため、セレクトボックスに変更
+        st.title("⚙️ 選択パネル")
+        st.info("ここで条件を選んでください")
+        
+        # 1. アカウント選択
         sel_acc = st.selectbox("👤 投稿アカウント", ACCOUNT_OPTIONS, index=0)
         
+        # データ取得
         ws = SPRS.worksheet(SHEET_MAP[sel_acc])
         data = ws.get_all_values()
-        if len(data) <= 1:
-            st.warning("データがありません")
-            return
-            
-        full_df = pd.DataFrame(data[1:])
-        full_df = full_df.iloc[:, :7]
-        while full_df.shape[1] < 7: full_df[full_df.shape[1]] = ""
-        full_df.columns = DF_COLS
-        full_df['__row__'] = range(2, len(data) + 1)
-
-        areas = sorted(full_df["エリア"].unique())
-        sel_area = st.selectbox("📍 エリア", ["未選択"] + areas)
         
-        sel_store = "未選択"
-        if sel_area != "未選択":
-            stores = sorted(full_df[full_df["エリア"] == sel_area]["店名"].unique())
-            sel_store = st.selectbox("🏢 店舗", ["未選択"] + stores)
+        if len(data) > 1:
+            full_df = pd.DataFrame(data[1:])
+            full_df = full_df.iloc[:, :7]
+            while full_df.shape[1] < 7: full_df[full_df.shape[1]] = ""
+            full_df.columns = DF_COLS
+            full_df['__row__'] = range(2, len(data) + 1)
 
+            # 2. エリア選択
+            areas = sorted(full_df["エリア"].unique())
+            sel_area = st.selectbox("📍 エリア", ["未選択"] + areas)
+            
+            sel_store = "未選択"
+            if sel_area != "未選択":
+                # 3. 店舗選択
+                stores = sorted(full_df[full_df["エリア"] == sel_area]["店名"].unique())
+                sel_store = st.selectbox("🏢 店舗", ["未選択"] + stores)
+        else:
+            st.error("シートにデータがありません")
+            return
+
+    # メイン画面の表示制御
     if sel_store == "未選択":
-        st.info("サイドバーから条件を選択してください。")
+        st.title("📸 写メ日記エディタ Pro")
+        st.warning("👈 左側のサイドバーから「エリア」と「店舗」を選択してください。")
+        st.caption("※サイドバーが閉まっている場合は、左上の「 > 」マークを押して開いてください。")
         return
 
-    # データ抽出
+    # --- 以下、選択後のメインコンテンツ ---
+    st.title(f"🏢 {sel_store} の編集")
+    
     target_df = full_df[(full_df["エリア"] == sel_area) & (full_df["店名"] == sel_store)]
     
-    # メトリック表示
-    m_c1, m_c2, m_c3 = st.columns([1,1,2])
-    m_c1.metric("Total", f"{len(target_df)} 件")
-    m_c2.metric("Shop", sel_store)
-    m_c3.write("")
+    # 統計
+    m_c1, m_c2 = st.columns([1, 3])
+    m_c1.metric("合計件数", f"{len(target_df)} 件")
 
     # GCS画像取得
     bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
@@ -116,48 +141,41 @@ def main():
 
     st.write("---")
 
-    # --- 日記リスト表示 ---
     for idx, row in target_df.iterrows():
         base_time = parse_to_datetime(row["投稿時間"])
         name_norm = normalize_text(row["女の子の名前"])
-        
-        # 画像マッチ
         matched_files = [img for img in store_images if name_norm in normalize_text(img.split('/')[-1]) and is_time_match(base_time, img.split('/')[-1])]
 
         with st.container():
-            st.markdown(f"**👤 {row['女の子の名前']} / ⏰ {row['投稿時間']}**")
-            
+            st.markdown(f"#### 👤 {row['女の子の名前']} / ⏰ {row['投稿時間']}")
             col_txt, col_img, col_ops = st.columns([2.5, 1, 1])
 
             with col_txt:
-                new_title = st.text_input("タイトル", row["タイトル"], key=f"ti_{idx}", label_visibility="collapsed")
-                # 本文を全文表示（heightを指定しない、または十分な高さを取る）
-                # Streamlitのtext_areaは文字量に合わせて自動伸長しないため、初期高さを少し高めつつ
-                # ユーザーがスクロールせずに読めるように調整
-                new_body = st.text_area("本文", row["本文"], key=f"bo_{idx}", height=250, label_visibility="collapsed")
+                new_title = st.text_input("タイトル", row["タイトル"], key=f"ti_{idx}")
+                new_body = st.text_area("本文", row["本文"], key=f"bo_{idx}", height=300) # 本文をさらに見やすく
                 
-                if st.button("💾 文言を保存", key=f"sv_{idx}"):
+                if st.button("💾 この内容を保存", key=f"sv_{idx}", type="primary"):
                     ws.update_cell(row['__row__'], 6, new_title)
                     ws.update_cell(row['__row__'], 7, new_body)
-                    st.toast("スプレッドシートを更新しました！")
+                    st.toast("保存しました！")
 
             with col_img:
                 if matched_files:
                     for m_path in matched_files:
                         st.image(get_cached_url(m_path), use_container_width=True)
-                        with st.popover("🗑️ 削除確認"):
+                        with st.popover("🗑️ 削除"):
                             st.write("本当に削除しますか？")
-                            if st.button("実行する", key=f"real_del_{idx}_{m_path}", type="primary"):
+                            if st.button("実行", key=f"del_{idx}_{m_path}"):
                                 bucket.blob(m_path).delete()
                                 st.cache_data.clear()
                                 st.rerun()
                 else:
-                    st.caption("🚨 画像なし")
+                    st.error("🚨 画像なし")
 
             with col_ops:
-                up_file = st.file_uploader("📥 画像追加", type=["jpg","png","jpeg"], key=f"up_{idx}", label_visibility="collapsed")
+                up_file = st.file_uploader("📥 画像追加", type=["jpg","png","jpeg"], key=f"up_{idx}")
                 if up_file:
-                    if st.button("🚀 アップロード", key=f"u_btn_{idx}"):
+                    if st.button("🚀 アップ", key=f"u_btn_{idx}"):
                         ext = up_file.name.split('.')[-1]
                         folder_name = f"デリじゃ {sel_store}" if row["媒体"] == "デリじゃ" else sel_store
                         new_blob_name = f"{sel_area}/{folder_name}/{row['投稿時間']}_{row['女の子の名前']}.{ext}"
@@ -166,7 +184,7 @@ def main():
                         st.cache_data.clear()
                         st.rerun()
             
-            st.markdown("<hr style='margin: 15px 0; border: none; border-top: 1px solid #ddd;'>", unsafe_allow_html=True)
+            st.markdown("<div class='diary-entry'></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
