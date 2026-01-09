@@ -37,22 +37,31 @@ except KeyError:
 REGISTRATION_HEADERS = ["エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文"]
 INPUT_HEADERS = ["投稿時間", "女の子の名前", "タイトル", "本文"]
 
-# --- 2. 各種API連携 (修正済み：GCを定義) ---
+# --- 2. 各種API連携 (API制限対策版) ---
 @st.cache_resource(ttl=3600)
 def get_gspread_client():
     return gspread.service_account_from_dict(st.secrets["gcp_service_account"])
 
-@st.cache_resource(ttl=3600)
-def get_gcs_client():
-    return storage.Client.from_service_account_info(st.secrets["gcp_service_account"])
+@st.cache_data(ttl=60) # 60秒間はAPIを叩かずキャッシュを使う
+def get_sheet_data(sheet_id, sheet_name=None):
+    client = get_gspread_client()
+    sh = client.open_by_key(sheet_id)
+    if sheet_name:
+        return sh.worksheet(sheet_name).get_all_values()
+    return sh
 
 try:
-    GC = get_gspread_client()  # 不動産屋（Client）
-    SPRS = GC.open_by_key(SHEET_ID)  # 家1（Spreadsheet）
-    STATUS_SPRS = GC.open_by_key(ACCOUNT_STATUS_SHEET_ID)  # 家2（Spreadsheet）
+    GC = get_gspread_client()
+    SPRS = GC.open_by_key(SHEET_ID)
+    # ここで全てのワークシートを一気に取得するのをやめ、必要な時だけ呼ぶようにします
     GCS_CLIENT = get_gcs_client()
 except Exception as e:
-    st.error(f"❌ API接続失敗: {e}"); st.stop()
+    # 429エラーが出た場合の親切なメッセージ
+    if "429" in str(e):
+        st.error("🚨 Google APIの制限を超えました。1分ほど待ってから再読み込みしてください。")
+        st.stop()
+    else:
+        st.error(f"❌ API接続失敗: {e}"); st.stop()
 
 def gcs_upload_wrapper(uploaded_file, entry, area, store):
     try:
@@ -645,6 +654,7 @@ with tab6:
     else:
         if not show_all: st.info("表示するフォルダを選択してください。")
         else: st.info("画像が見つかりませんでした。")
+
 
 
 
