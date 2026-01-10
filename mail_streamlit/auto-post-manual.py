@@ -64,11 +64,12 @@ tab_manual, tab_operation, tab_trouble, tab_billing = st.tabs([
     "📊 リアルタイム料金"
 ])
 
-# --- 1. システムの仕組み (時刻比較・最新特定版) ---
+# --- 1. システムの仕組み (日付越え・深夜対応版) ---
 with tab_manual:
     st.header("📊 システム稼働状況 ＆ インフラ解説")
     
     JST = timezone(timedelta(hours=+9), 'JST')
+    now_jst = datetime.now(JST)
     
     st.markdown("#### 🔄 リアルタイム投稿確認")
     if st.button("最新の投稿状況をチェックする"):
@@ -77,53 +78,57 @@ with tab_manual:
         
         status_summary = []
 
-        with st.spinner('全行から最新時刻のログを探索中...'):
+        with st.spinner('全行から「本当の最新」を計算中...'):
             try:
                 sh_status = GC.open_by_key(spreadsheet_id)
                 
                 for name in target_sheets:
                     try:
                         ws = sh_status.worksheet(name)
-                        # 💡 範囲を広めに取得（H列を含むJ列まで）
-                        raw_data = ws.get('A1:J2000') 
+                        # A1からJ1500まで取得（必要に応じて行数は増やしてください）
+                        raw_data = ws.get('A1:J1500') 
                         
                         latest_entry = None
-                        latest_time_obj = None
+                        latest_total_seconds = -1
 
                         if raw_data:
-                            # 💡 全行をループして「時間」を比較する
                             for i, row in enumerate(raw_data):
                                 if len(row) >= 8:
                                     status_cell = str(row[7]).strip()
-                                    # 「完了: 12:34:56」のような形式から時刻を抽出
+                                    # 時刻 (HH:MM:SS) を抽出
                                     match = re.search(r'(\d{1,2}:\d{2}:\d{2})', status_cell)
                                     if "完了" in status_cell and match:
                                         time_str = match.group(1)
-                                        try:
-                                            # 時刻文字列を比較可能なオブジェクトに変換
-                                            current_time_obj = datetime.strptime(time_str, '%H:%M:%S')
-                                            
-                                            # 💡 暫定的に「今日」の出来事として比較
-                                            if latest_time_obj is None or current_time_obj > latest_time_obj:
-                                                latest_time_obj = current_time_obj
-                                                latest_entry = {
-                                                    "シート": name,
-                                                    "状況": status_cell,
-                                                    "店舗": row[1] if len(row) > 1 else "不明",
-                                                    "行": i + 1
-                                                }
-                                        except:
-                                            continue
+                                        h, m, s = map(int, time_str.split(':'))
+                                        
+                                        # 💡 日付越え補正ロジック
+                                        # 深夜(0時-11時)に確認している時、20時-23時のデータは「24時間前」として計算
+                                        total_seconds = h * 3600 + m * 60 + s
+                                        
+                                        # 「今の時間」より「セルの時間」が圧倒的に大きい(12時間以上先)なら昨日のデータとみなす
+                                        now_total_seconds = now_jst.hour * 3600 + now_jst.minute * 60 + now_jst.second
+                                        if total_seconds > now_total_seconds + 43200: # 12時間差
+                                            total_seconds -= 86400 # 1日分(24時間)引く
+                                        
+                                        # 最も大きい(現在に近い)秒数を持つ行を保持
+                                        if latest_total_seconds == -1 or total_seconds > latest_total_seconds:
+                                            latest_total_seconds = total_seconds
+                                            latest_entry = {
+                                                "シート": name,
+                                                "状況": status_cell,
+                                                "店舗": row[1] if len(row) > 1 else "不明",
+                                                "行": i + 1
+                                            }
                             
                         if latest_entry:
                             status_summary.append(latest_entry)
                         else:
-                            status_summary.append({"シート": name, "状況": "💤 待機中", "店舗": "-", "行": "-"})
+                            status_summary.append({"シート": name, "状況": "💤 投稿待ち", "店舗": "-", "行": "-"})
                         
                     except Exception as e:
-                        status_summary.append({"シート": name, "状況": "⚠️ 読込エラー", "店舗": "-", "行": "-"})
+                        status_summary.append({"シート": name, "状況": "⚠️ エラー", "店舗": "-", "行": "-"})
 
-                st.success(f"✅ 全行スキャン完了（確認時刻: {datetime.now(JST).strftime('%H:%M:%S')}）")
+                st.success(f"✅ 全行スキャン完了（確認時刻: {now_jst.strftime('%H:%M:%S')}）")
                 st.table(pd.DataFrame(status_summary))
 
             except Exception as e:
@@ -293,6 +298,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
