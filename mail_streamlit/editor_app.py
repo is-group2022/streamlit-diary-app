@@ -109,6 +109,11 @@ def main():
     full_df.columns = DF_COLS
     full_df['__row__'] = range(2, len(data) + 1)
 
+    # --- 空白行の除外処理を追加 ---
+    # 店名と女の子の名前の両方が空、もしくはどちらかが空の行をフィルタリング
+    full_df = full_df[full_df["店名"].str.strip() != ""]
+    full_df = full_df[full_df["女の子の名前"].str.strip() != ""]
+
     with c2:
         areas = sorted(full_df["エリア"].unique())
         sel_area = st.selectbox("📍 エリア", ["未選択"] + areas)
@@ -199,4 +204,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
