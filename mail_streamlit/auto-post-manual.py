@@ -63,82 +63,61 @@ tab_manual, tab_operation, tab_trouble, tab_billing = st.tabs([
     "📊 リアルタイム料金"
 ])
 
-# --- 1. システムの仕組み (H列直接判定版) ---
+# --- 1. システムの仕組み (最新行サーチ強化版) ---
 with tab_manual:
     st.header("📊 システム稼働状況 ＆ インフラ解説")
     
     JST = timezone(timedelta(hours=+9), 'JST')
     now_jst = datetime.now(JST)
-    current_time = now_jst.time()
     
-    is_off_hours = time(6, 0) <= current_time <= time(11, 0)
-
-    if is_off_hours:
-        st.warning(f"### ☕ 現在はシステムメンテナンス時間です (06:00〜11:00)")
-        st.info("この時間は自動投稿が停止しています。11:01以降に再開されます。")
-
     st.markdown("#### 🔄 リアルタイム投稿確認")
     if st.button("最新の投稿状況をチェックする"):
         target_sheets = ["投稿Aアカウント", "投稿Bアカウント", "投稿Cアカウント", "投稿Dアカウント"]
         spreadsheet_id = "1sEzw59aswIlA-8_CTyUrRBLN7OnrRIJERKUZ_bELMrY"
         
-        any_active = False
         status_summary = []
 
-        with st.spinner('H列の最終入力をスキャン中...'):
+        with st.spinner('各シートのH列をスキャン中...'):
             try:
                 sh_status = GC.open_by_key(spreadsheet_id)
                 
                 for name in target_sheets:
                     try:
                         ws = sh_status.worksheet(name)
-                        # 💡 列全体ではなく、H列(8列目)のデータだけを狙い撃ちで取得
-                        # これにより「他の列が長い」影響を完全に排除します
-                        h_column_values = ws.col_values(8) # H列は8列目
+                        # 💡 対策1：H列のデータをリストとして取得（空文字も含む）
+                        h_col = ws.col_values(8) 
                         
-                        # 💡 下から上にスキャンして、最初に「完了」が含まれるセルを探す
-                        last_post_status = "-"
-                        found_target = False
-                        
-                        # ヘッダーを除いたデータを逆順に確認
-                        for i in range(len(h_column_values)-1, 0, -1):
-                            val = str(h_column_values[i]).strip()
-                            if "完了" in val:
-                                last_post_status = val
-                                # その行の他のデータ（店名など）も必要なら取得
-                                # ここではH列が見つかった行の「店名(B列=2列目)」を取得
-                                row_data = ws.row_values(i + 1)
-                                shop_name = row_data[1] if len(row_data) > 1 else "不明"
-                                
-                                status_summary.append({
-                                    "シート": name,
-                                    "状況": last_post_status,
-                                    "店舗": shop_name
-                                })
-                                found_target = True
-                                any_active = True
+                        last_post_val = "データなし"
+                        shop_name = "-"
+                        found = False
+
+                        # 💡 対策2：リストの末尾（一番下の行）から上に向かって1行ずつチェック
+                        # 空文字ではない、かつ「完了」という文字が入っているセルを最初に見つけるまでループ
+                        for i in range(len(h_col) - 1, -1, -1):
+                            cell_val = str(h_col[i]).strip()
+                            if cell_val and "完了" in cell_val:
+                                last_post_val = cell_val
+                                # その行のB列（店名）を取得
+                                # iは0始まりなので、シートの行番号は i + 1
+                                shop_name = ws.cell(i + 1, 2).value
+                                found = True
                                 break
                         
-                        if not found_target:
-                            status_summary.append({"シート": name, "状況": "💤 投稿待ち", "店舗": "-"})
+                        status_summary.append({
+                            "シート": name,
+                            "状況": last_post_val,
+                            "店舗": shop_name
+                        })
                             
-                    except Exception as e:
+                    except Exception:
                         status_summary.append({"シート": name, "状況": "⚠️ 読込エラー", "店舗": "-"})
 
-                # --- 結果表示 ---
-                if any_active:
-                    st.success(f"✅ システム稼働確認（最終確認: {datetime.now(JST).strftime('%H:%M:%S')}）")
-                else:
-                    st.error(f"⚠️ 稼働状況が確認できません（最終確認: {datetime.now(JST).strftime('%H:%M:%S')}）")
-                
+                # 表示
+                st.success(f"✅ 取得完了（確認時刻: {datetime.now(JST).strftime('%H:%M:%S')}）")
                 st.table(pd.DataFrame(status_summary))
 
             except Exception as e:
-                st.error(f"### ❌ アクセス不可: {str(e)}")
-    else:
-        st.info("ボタンを押すと、各シートのH列を直接スキャンして最新の『完了』を探します。")
-
-    st.divider()
+                st.error(f"接続エラー: {e}")
     
     # --- インフラ解説セクション ---
     col1, col2 = st.columns(2)
@@ -304,6 +283,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
