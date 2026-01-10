@@ -63,7 +63,7 @@ tab_manual, tab_operation, tab_trouble, tab_billing = st.tabs([
     "📊 リアルタイム料金"
 ])
 
-# --- 1. システムの仕組み (最新行取得強化版) ---
+# --- 1. システムの仕組み (H列直接判定版) ---
 with tab_manual:
     st.header("📊 システム稼働状況 ＆ インフラ解説")
     
@@ -85,55 +85,58 @@ with tab_manual:
         any_active = False
         status_summary = []
 
-        with st.spinner('最新の行を確認中...'):
+        with st.spinner('H列の最終入力をスキャン中...'):
             try:
                 sh_status = GC.open_by_key(spreadsheet_id)
                 
                 for name in target_sheets:
                     try:
                         ws = sh_status.worksheet(name)
-                        # 💡 全データを取得
-                        data = ws.get_all_values()
-                        if len(data) > 1:
-                            df = pd.DataFrame(data[1:], columns=data[0])
-                            
-                            if '投稿ステータス' in df.columns:
-                                # 💡 1. まず「完了」という文字が入っている行だけに絞り込む
-                                # 💡 2. インデックスをリセットせず、元の行番号を維持して最後を取得
-                                df_done = df[df['投稿ステータス'].str.contains("完了", na=False)]
+                        # 💡 列全体ではなく、H列(8列目)のデータだけを狙い撃ちで取得
+                        # これにより「他の列が長い」影響を完全に排除します
+                        h_column_values = ws.col_values(8) # H列は8列目
+                        
+                        # 💡 下から上にスキャンして、最初に「完了」が含まれるセルを探す
+                        last_post_status = "-"
+                        found_target = False
+                        
+                        # ヘッダーを除いたデータを逆順に確認
+                        for i in range(len(h_column_values)-1, 0, -1):
+                            val = str(h_column_values[i]).strip()
+                            if "完了" in val:
+                                last_post_status = val
+                                # その行の他のデータ（店名など）も必要なら取得
+                                # ここではH列が見つかった行の「店名(B列=2列目)」を取得
+                                row_data = ws.row_values(i + 1)
+                                shop_name = row_data[1] if len(row_data) > 1 else "不明"
                                 
-                                if not df_done.empty:
-                                    # 💡 一番下の行（最新行）を確実に指定
-                                    last_index = df_done.index[-1]
-                                    last_post = df_done.loc[last_index]
-                                    
-                                    status_summary.append({
-                                        "シート": name,
-                                        "状況": last_post['投稿ステータス'],
-                                        "店舗": last_post.get('店名', '不明'),
-                                        "稼働": True
-                                    })
-                                    any_active = True
-                                else:
-                                    status_summary.append({"シート": name, "状況": "💤 待機中", "店舗": "-", "稼働": False})
-                            else:
-                                status_summary.append({"シート": name, "状況": "⚠️ 列名違い", "店舗": "-", "稼働": False})
-                        else:
-                            status_summary.append({"シート": name, "状況": "⚪ 空白", "店舗": "-", "稼働": False})
-                    except:
-                        status_summary.append({"シート": name, "状況": "⚠️ 読込失敗", "店舗": "-", "稼働": False})
+                                status_summary.append({
+                                    "シート": name,
+                                    "状況": last_post_status,
+                                    "店舗": shop_name
+                                })
+                                found_target = True
+                                any_active = True
+                                break
+                        
+                        if not found_target:
+                            status_summary.append({"シート": name, "状況": "💤 投稿待ち", "店舗": "-"})
+                            
+                    except Exception as e:
+                        status_summary.append({"シート": name, "状況": "⚠️ 読込エラー", "店舗": "-"})
 
+                # --- 結果表示 ---
                 if any_active:
                     st.success(f"✅ システム稼働確認（最終確認: {datetime.now(JST).strftime('%H:%M:%S')}）")
                 else:
-                    st.error(f"⚠️ 完了記録が見つかりません")
+                    st.error(f"⚠️ 稼働状況が確認できません（最終確認: {datetime.now(JST).strftime('%H:%M:%S')}）")
                 
-                st.table(pd.DataFrame(status_summary)[["シート", "状況", "店舗"]])
+                st.table(pd.DataFrame(status_summary))
 
             except Exception as e:
                 st.error(f"### ❌ アクセス不可: {str(e)}")
     else:
-        st.info("ボタンを押すとシートの「一番下の完了行」を読み込みます。")
+        st.info("ボタンを押すと、各シートのH列を直接スキャンして最新の『完了』を探します。")
 
     st.divider()
     
@@ -301,6 +304,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
