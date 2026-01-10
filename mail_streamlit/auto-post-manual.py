@@ -63,13 +63,6 @@ tab_manual, tab_operation, tab_trouble, tab_billing = st.tabs([
     "📊 リアルタイム料金"
 ])
 
-最新の状況が拾えない（スプレッドシートの更新が反映されない）原因の多くは、Google側のAPIキャッシュやデータの取得範囲にあります。
-
-GC.open_by_key をボタンが押されたタイミングで実行するようにし、さらに確実に最新行（一番下の完了）を取得できるようにロジックを微調整しました。
-
-「1. システムの仕組み」修正版コード
-Python
-
 # --- 1. システムの仕組み (手動更新ボタン付き) ---
 with tab_manual:
     st.header("📊 システム稼働状況 ＆ インフラ解説")
@@ -319,6 +312,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
