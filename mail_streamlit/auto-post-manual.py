@@ -64,7 +64,7 @@ tab_manual, tab_operation, tab_trouble, tab_billing = st.tabs([
     "📊 リアルタイム料金"
 ])
 
-# --- 1. システムの仕組み (日付越え・深夜対応版) ---
+# --- 1. システムの仕組み (UTC→JST補正・最新特定版) ---
 with tab_manual:
     st.header("📊 システム稼働状況 ＆ インフラ解説")
     
@@ -78,44 +78,50 @@ with tab_manual:
         
         status_summary = []
 
-        with st.spinner('全行から「本当の最新」を計算中...'):
+        with st.spinner('記録時間を日本時間に補正してスキャン中...'):
             try:
                 sh_status = GC.open_by_key(spreadsheet_id)
                 
                 for name in target_sheets:
                     try:
                         ws = sh_status.worksheet(name)
-                        # A1からJ1500まで取得（必要に応じて行数は増やしてください）
                         raw_data = ws.get('A1:J1500') 
                         
                         latest_entry = None
-                        latest_total_seconds = -1
+                        latest_total_seconds = -float('inf')
 
                         if raw_data:
                             for i, row in enumerate(raw_data):
                                 if len(row) >= 8:
                                     status_cell = str(row[7]).strip()
-                                    # 時刻 (HH:MM:SS) を抽出
                                     match = re.search(r'(\d{1,2}:\d{2}:\d{2})', status_cell)
+                                    
                                     if "完了" in status_cell and match:
                                         time_str = match.group(1)
                                         h, m, s = map(int, time_str.split(':'))
                                         
-                                        # 💡 日付越え補正ロジック
-                                        # 深夜(0時-11時)に確認している時、20時-23時のデータは「24時間前」として計算
-                                        total_seconds = h * 3600 + m * 60 + s
+                                        # 💡 【重要】UTC時間を日本時間に変換
+                                        # セルの時間に9時間を足す（24時間を超えたら0に戻す）
+                                        jst_h = (h + 9) % 24
                                         
-                                        # 「今の時間」より「セルの時間」が圧倒的に大きい(12時間以上先)なら昨日のデータとみなす
+                                        # 比較用の通算秒（日本時間ベース）
+                                        total_seconds = jst_h * 3600 + m * 60 + s
+                                        
+                                        # 日付跨ぎ補正：
+                                        # 今（深夜3時）より、データ（例えば昨日の夜22時）が12時間以上離れているなら過去と判定
                                         now_total_seconds = now_jst.hour * 3600 + now_jst.minute * 60 + now_jst.second
-                                        if total_seconds > now_total_seconds + 43200: # 12時間差
-                                            total_seconds -= 86400 # 1日分(24時間)引く
-                                        
-                                        # 最も大きい(現在に近い)秒数を持つ行を保持
-                                        if latest_total_seconds == -1 or total_seconds > latest_total_seconds:
+                                        if total_seconds > now_total_seconds + 43200:
+                                            total_seconds -= 86400
+
+                                        if total_seconds > latest_total_seconds:
                                             latest_total_seconds = total_seconds
+                                            # 表示用には元の文字列を使うか、計算後の日本時間を使う
+                                            # ここでは分かりやすく「日本時間：XX:XX」として表示
+                                            display_time = f"完了: {jst_h:02}:{m:02}:{s:02} (JST)"
+                                            
                                             latest_entry = {
                                                 "シート": name,
-                                                "状況": status_cell,
+                                                "状況": display_time,
                                                 "店舗": row[1] if len(row) > 1 else "不明",
                                                 "行": i + 1
                                             }
@@ -128,7 +134,7 @@ with tab_manual:
                     except Exception as e:
                         status_summary.append({"シート": name, "状況": "⚠️ エラー", "店舗": "-", "行": "-"})
 
-                st.success(f"✅ 全行スキャン完了（確認時刻: {now_jst.strftime('%H:%M:%S')}）")
+                st.success(f"✅ 日本時間同期完了（確認時刻: {now_jst.strftime('%H:%M:%S')}）")
                 st.table(pd.DataFrame(status_summary))
 
             except Exception as e:
@@ -298,6 +304,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
