@@ -102,7 +102,7 @@ with tab_operation:
     st.subheader("🚀 3. 店舗終了時のデータ整理（落ち店移動）")
     
     st.markdown("""
-    契約終了や一時停止の店舗が発生した際は、**「落ち店移動」機能**を実行してください。
+    店舗を落とした際は、**「落ち店移動」機能**を実行してください。
     手動で削除する手間を省き、大切な日記データを将来のために「倉庫」へ自動保管します。
     """)
 
@@ -138,7 +138,7 @@ with tab_operation:
                     <td style="padding: 12px; font-weight: bold;">📝 日記本文</td>
                     <td style="padding: 12px;">
                         自動で倉庫へ転記されます。<br>
-                        <a href="{URL_REUSE}" target="_blank" style="color: #2563eb; font-weight: bold;">[登録アプリのTab 4]</a> 
+                        <a href="{URL_REUSE}" target="_blank" style="color: #2563eb; font-weight: bold;">[登録アプリのTab 3]</a> 
                         からいつでも内容を確認し、他の店舗へ再利用（コピー）できます。
                     </td>
                 </tr>
@@ -190,6 +190,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
