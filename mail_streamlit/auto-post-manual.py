@@ -2,11 +2,27 @@ import os
 import pandas as pd
 from datetime import datetime, time
 import streamlit as st
-import pandas as pd
+import gspread
+from google.oauth2.service_account import Credentials
 from google.cloud import bigquery
 
 # --- ページ設定 ---
 st.set_page_config(page_title="自動日記運用マニュアル", layout="wide")
+
+# --- 0. Googleスプレッドシートへの接続設定 (追加箇所) ---
+try:
+    scope = [
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive'
+    ]
+    credentials = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=scope
+    )
+    GC = gspread.authorize(credentials)
+except Exception as e:
+    st.error("Googleスプレッドシートの認証設定（Secrets）が見つかりません。")
+    st.stop()
 
 # --- モダンUIデザイン（文字を大きく、PCで見やすく） ---
 st.markdown("""
@@ -38,7 +54,7 @@ st.markdown("""
 st.title("🤖 自動日記運用マニュアル")
 st.write("システムの稼働状況とマニュアルを統合管理しています。")
 
-# --- 上部タブナビゲーションの定義 (ここで名前を確定させます) ---
+# --- 上部タブナビゲーションの定義 ---
 tab_manual, tab_operation, tab_trouble, tab_billing = st.tabs([
     "📂 システムの仕組み (GCE/GCS)", 
     "📝 日常の操作手順", 
@@ -55,7 +71,7 @@ with tab_manual:
     current_time = now.time()
     is_off_hours = time(6, 0) <= current_time <= time(11, 0)
 
-    # 監視対象のシート名（※シート名が1文字でも違うとエラーになります）
+    # 監視対象のシート名
     target_sheets = ["投稿Aアカウント", "投稿Bアカウント", "投稿Cアカウント", "投稿Dアカウント"]
     spreadsheet_id = "1sEzw59aswIlA-8_CTyUrRBLN7OnrRIJERKUZ_bELMrY"
     
@@ -64,30 +80,21 @@ with tab_manual:
 
     # --- 各シートの状況をチェック ---
     try:
-        # スプレッドシート本体を開く
         sh_status = GC.open_by_key(spreadsheet_id)
-        
-        # 実際にスプレッドシートにある全シート名を取得して、名前の不一致を防ぐ
         all_worksheets = [ws.title for ws in sh_status.worksheets()]
 
         for name in target_sheets:
             if name not in all_worksheets:
-                status_summary.append({"シート": name, "状況": "❌ シート名が見つかりません", "店舗": "-", "稼働": False})
+                status_summary.append({"シート": name, "状況": "❌ 名前違い", "店舗": "-", "稼働": False})
                 continue
 
             try:
                 ws = sh_status.worksheet(name)
                 data = ws.get_all_values()
-                
                 if len(data) > 1:
-                    # 1行目をヘッダーとしてデータフレーム作成
                     df = pd.DataFrame(data[1:], columns=data[0])
-                    
-                    # 「投稿ステータス」という列があるか確認
                     if '投稿ステータス' in df.columns:
-                        # 「完了」という文字が含まれる行を抽出
                         done_rows = df[df['投稿ステータス'].str.contains("完了", na=False)]
-                        
                         if not done_rows.empty:
                             last_post = done_rows.iloc[-1]
                             status_summary.append({
@@ -98,13 +105,13 @@ with tab_manual:
                             })
                             any_active = True
                         else:
-                            status_summary.append({"シート": name, "状況": "💤 投稿待ち（完了なし）", "店舗": "-", "稼働": False})
+                            status_summary.append({"シート": name, "状況": "💤 待機中", "店舗": "-", "稼働": False})
                     else:
-                        status_summary.append({"シート": name, "状況": "⚠️ 列名(H列)が違います", "店舗": "-", "稼働": False})
+                        status_summary.append({"シート": name, "状況": "⚠️ 列名違い", "店舗": "-", "稼働": False})
                 else:
-                    status_summary.append({"シート": name, "状況": "⚪ データ空っぽ", "店舗": "-", "稼働": False})
-            except Exception as e:
-                status_summary.append({"シート": name, "状況": f"⚠️ 読み込みエラー", "店舗": "-", "稼働": False})
+                    status_summary.append({"シート": name, "状況": "⚪ 空白", "店舗": "-", "稼働": False})
+            except:
+                status_summary.append({"シート": name, "状況": "⚠️ エラー", "店舗": "-", "稼働": False})
 
         # --- 表示結果 ---
         if is_off_hours:
@@ -124,14 +131,7 @@ with tab_manual:
             
     except Exception as e:
         st.error(f"### ❌ スプレッドシートにアクセスできません")
-        st.markdown(f"""
-        **以下の2点を確認してください：**
-        1. スプレッドシートの共有設定に、システム用のアドレス（サービスアカウント）が入っていますか？
-        2. スプレッドシートID `{spreadsheet_id}` が正しいですか？
-        """)
-        # 詳しいエラー内容を小さく表示（管理者向け）
-        with st.expander("詳細なエラー内容を表示"):
-            st.write(str(e))
+        st.markdown(f"エラー詳細: `{str(e)}`")
 
     st.divider()
     # --- インフラ解説セクション ---
@@ -168,13 +168,10 @@ with tab_operation:
     # URL設定
     URL_REGIST = "https://app-diary-app-krfts9htfjkvrq275esxfq.streamlit.app/"
     URL_EDIT = "https://app-diary-app-vstgarmm2invbrbxhuqpra.streamlit.app/"
-    # 登録アプリのTab4に直接誘導（StreamlitのURLパラメータ形式）
     URL_REUSE = f"{URL_REGIST}?tab=④+使用可能日記文（ストック）"
 
-    # 全体の説明
     st.info("このシステムは、日々の「自動投稿予約」と、投稿の「データ編集」を自動化するために2つのアプリに分かれています。")
 
-    # --- ステップ1 & 2 (概要) ---
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("✨ 1. 新規登録")
@@ -184,16 +181,12 @@ with tab_operation:
         st.markdown(f"**[編集アプリ]({URL_EDIT})** を使用。登録内容の変更や画像の最終確認を行います。")
 
     st.divider()
-
-    # --- ステップ3 (詳細解説：落ち店移動) ---
     st.subheader("🚀 3. 店舗終了時のデータ整理（落ち店移動）")
-    
     st.markdown("""
     店舗を落とした際は、**「落ち店移動」機能**を実行してください。
     手動で削除する手間を省き、大切な日記データを将来のために「倉庫」へ自動保管します。
     """)
 
-    # メイン操作カード
     st.markdown(f"""
     <div style="background-color: #fff1f2; padding: 25px; border-radius: 12px; border-left: 6px solid #e11d48; margin-bottom: 25px;">
         <h4 style="color: #e11d48; margin-top: 0; display: flex; align-items: center;">
@@ -206,9 +199,6 @@ with tab_operation:
             <li>画面下の <b>「🚀 選択した店舗を【落ち店】へ移動する」</b> をクリック。</li>
             <li>赤い確認画面で <b>「⭕ はい、実行します」</b> を選択。</li>
         </ol>
-        <div style="font-size: 0.9rem; color: #b91c1c; background: #ffffff; padding: 12px; border-radius: 8px; border: 1px solid #fecaca; margin-top: 15px;">
-            ⚠️ <b>注意：</b> 処理が完了して画面が更新されるまで、ブラウザを閉じないでください。
-        </div>
     </div>
 
     <div style="background-color: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0;">
@@ -223,22 +213,15 @@ with tab_operation:
             <tbody>
                 <tr style="border-bottom: 1px solid #f1f5f9;">
                     <td style="padding: 12px; font-weight: bold;">📝 日記本文</td>
-                    <td style="padding: 12px;">
-                        自動で倉庫へ転記されます。<br>
-                        <a href="{URL_REUSE}" target="_blank" style="color: #2563eb; font-weight: bold;">[登録アプリのTab 3]</a> 
-                        からいつでも内容を確認し、他の店舗へ再利用（コピー）できます。
-                    </td>
+                    <td style="padding: 12px;">自動で倉庫へ転記されます。<br><a href="{URL_REUSE}" target="_blank" style="color: #2563eb; font-weight: bold;">[登録アプリのTab 3]</a> から再利用できます。</td>
                 </tr>
                 <tr style="border-bottom: 1px solid #f1f5f9;">
                     <td style="padding: 12px; font-weight: bold;">🔑 ログイン情報</td>
-                    <td style="padding: 12px;">システムから自動削除。<b>誤投稿の心配がなくなります。</b></td>
+                    <td style="padding: 12px;">システムから自動削除。</td>
                 </tr>
                 <tr>
                     <td style="padding: 12px; font-weight: bold;">🖼 画像データ</td>
-                    <td style="padding: 12px;">
-                        ストレージ内の「【落ち店】フォルダ」へ移動。<br>
-                        こちらも登録アプリの <b>Tab 4</b> で一覧表示・再利用が可能です。
-                    </td>
+                    <td style="padding: 12px;">「【落ち店】フォルダ」へ移動。Tab 4で管理可能です。</td>
                 </tr>
             </tbody>
         </table>
@@ -248,72 +231,47 @@ with tab_operation:
 # --- 3. トラブル対応 ---
 with tab_trouble:
     st.header("🆘 困った時の解決ガイド")
-    
-    # URL設定
     URL_GCE = "https://console.cloud.google.com/compute/instances?project=project-d2e471f9-c395-4015-aea"
     ADMIN_EMAIL = "isgroup0001@gmail.com"
 
     with st.expander("❓ 投稿が動かない・「完了」にならない", expanded=True):
         st.markdown("""
-        まずは以下の3点をチェックしてください。ほとんどの場合、これで解決します。
-        
         1. **名前がサイトと合っているか？**
-           - 「山田」と「山田 」（最後にスペース）は別人と判断されます。
         2. **H列（ステータス）が完全に空か？**
-           - 文字が入っていると「投稿済み」と判断されます。**デリートキーで完全に消して**みてください。
         3. **画像は準備できているか？**
-           - `エリア/店名/1200_名前.jpg` の形式で正しく保存されているか確認してください。
         """)
 
     st.divider()
-
-    # --- 強制再起動セクション ---
     st.subheader("🛠 システム起動方法（強制再起動）")
     st.error("⚠️ 注意：どうしても投稿が再開されない時だけ、以下の手順を順番に試してください。")
 
-    # 手順 1
     st.markdown(f"### 1️⃣ Google Cloud にログインする")
     st.markdown(f"必ず **「アイエスグループ（{ADMIN_EMAIL}）」** のアカウントでログインしてください。")
     st.link_button("👉 Google Cloud コンソールを開く", URL_GCE)
 
-    # 手順 2
     st.markdown("### 2️⃣ SSHボタンを押す")
-    st.markdown("一覧にある `auto-post-server` の右側にある **「SSH」** という青い文字をクリックします。")
+    st.markdown("一覧にある `auto-post-server` の右側にある **「SSH」** をクリックします。")
     
-    # 画像表示の工夫（ファイルが見つからない場合も考慮）
     img_dir = os.path.dirname(__file__)
     def show_img(file_name, caption):
         path = os.path.join(img_dir, file_name)
+        if not os.path.exists(path):
+            path = os.path.join(img_dir, "mail_streamlit", file_name)
         if os.path.exists(path):
             st.image(path, caption=caption)
         else:
-            # フォルダ名を含めて再トライ
-            alt_path = os.path.join(img_dir, "mail_streamlit", file_name)
-            if os.path.exists(alt_path):
-                st.image(alt_path, caption=caption)
-            else:
-                st.warning(f"📸 画像 {file_name} が読み込めません。ファイル名と場所を確認してください。")
+            st.warning(f"📸 画像 {file_name} が読み込めません。")
 
     show_img("image_980436.jpg", "この『SSH』をクリックしてください")
 
-    # 手順 3
     st.markdown("### 3️⃣ 接続を「承認」する")
-    st.markdown("""
-    クリック後、しばらく待つと「承認」を求める画面が出ることがあります。
-    **「承認（Authorize）」** ボタンを押して進めてください。
-    """)
+    st.markdown("「承認（Authorize）」ボタンを押して進めてください。")
     show_img("image_980437.jpg", "この画面が出たら『承認』または『Authorize』をクリック")
 
-    # 手順 4
     st.markdown("### 4️⃣ コマンドを貼り付ける")
-    st.markdown("""
-    黒い画面が立ち上がったら、1分ほど待ちます。文字が止まり、末尾に **$** マークが出てカーソルが点滅したら準備完了です。
-    
-    下の枠内のコードをコピーして、黒い画面に貼り付け（**右クリック → 貼り付け**）、**Enterキー**を1回押してください。
-    """)
+    st.markdown("文字が止まり、末尾に **$** マークが出たら下のコードを貼り付けてEnterキーを押してください。")
     show_img("image_980438.jpg", "この $ マークのあとに貼り付けてEnter！")
 
-    # 実行コマンド
     REBOOT_COMMAND = "pkill -f main.py; nohup python3 main.py > system.log 2>&1 &"
     st.code(REBOOT_COMMAND, language="bash")
     
@@ -321,8 +279,7 @@ with tab_trouble:
     <div style="background-color: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; margin-top: 10px;">
         <p style="margin-bottom: 5px; font-weight: bold;">✅ 操作が終わったら</p>
         <p style="font-size: 0.9rem; color: #475569; margin-bottom: 0;">
-            ・Enterを押して新しい行が出れば成功です。黒い画面はバツボタンで閉じてOK。<br>
-            ・<b>5〜10分後</b>にスプレッドシートのH列に「完了」が出始めるか確認してください。
+            ・Enterを押して新しい行が出れば成功。5〜10分後にH列を確認してください。
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -330,10 +287,7 @@ with tab_trouble:
 # --- 4. リアルタイム料金 ---
 with tab_billing:
     st.header("📊 利用料金のモニタリング")
-    
-    # 実際はBigQueryから取得しますが、設定反映待機用の表示
-    current_cost_usd = 0.00  # データが届くとここが更新されます
-    
+    current_cost_usd = 0.00
     st.markdown(f"""
     <div class="card">
         <h3>今月の概算利用料</h3>
@@ -344,25 +298,3 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
