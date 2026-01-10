@@ -160,6 +160,8 @@ with tab_operation:
 
 import os
 
+import os
+
 # --- 3. トラブル対応 ---
 with tab_trouble:
     st.header("🆘 困った時の解決ガイド")
@@ -188,36 +190,35 @@ with tab_trouble:
 
     st.markdown(f"""
     ### 1️⃣ Google Cloud にログインする
-    **※ 非常に重要 ※**
-    必ず **「アイエスグループ」** のアカウントでログインしてください。
+    **※ 重要 ※** 必ず **「アイエスグループ（{ADMIN_EMAIL}）」** のアカウントでログインしてください。
     
-    * **使用するメール**: `{ADMIN_EMAIL}`
-    
-    [👉 Google Cloud コンソール（管理画面）を開く]({URL_GCE})
+    [👉 Google Cloud コンソールを開く]({URL_GCE})
 
-    ### 2️⃣ SSHボタンを押す
-    ログイン後、一覧にある `auto-post-server` の右側にある **「SSH」** という青い文字をクリックしてください。
+    ### 2️⃣ SSHボタンを押して「承認」する
+    一覧にある `auto-post-server` の右側にある **「SSH」** をクリックします。
+    
+    しばらくすると**「承認（Authorize）」**を求める画面が表示されます。
+    「ブラウザでのSSHによるVMへの接続を許可します」という内容ですので、迷わず **「承認（Authorize）」** ボタンを押してください。
     """)
 
-    # --- 画像表示（パスの修正版） ---
-    # 実行ファイルの場所を基準に画像を探す
+    # 画像：承認画面（image_980437.jpg）の表示設定
     current_dir = os.path.dirname(__file__)
-    img_path = os.path.join(current_dir, "image_980436.jpg")
+    img_auth = os.path.join(current_dir, "image_980437.jpg")
+    if os.path.exists(img_auth):
+        st.image(img_auth, caption="この画面が出たら『承認』または『Authorize』をクリックしてください")
 
-    if os.path.exists(img_path):
-        st.image(img_path, caption="Google Cloud 画面：この『SSH』をクリック")
-    else:
-        # 万が一パスが通らない場合の予備
-        try:
-            st.image("mail_streamlit/image_980436.jpg", caption="Google Cloud 画面：この『SSH』をクリック")
-        except:
-            st.warning("📸 画像が見つかりませんでした。画面右端の『接続』列にある青い【SSH】という文字を探してください。")
-
-    st.markdown(f"""
+    st.markdown("""
     ### 3️⃣ 魔法の言葉（コマンド）を貼り付ける
-    黒い画面（別ウィンドウ）が立ち上がったら、1分ほど待ちます。
-    文字が止まり、末尾に `$` マークなどが出てカーソルが点滅したら、下のコードを**コピーして貼り付け、Enterキー**を1回押してください。
+    黒い画面が立ち上がったら、接続されるまで1分ほど待ちます。
+    下の画像のように、文字が止まって末尾に **$** マークが出たら準備完了です。
     """)
+
+    # 画像：SSH実行画面（image_980438.jpg）の表示設定
+    img_ssh = os.path.join(current_dir, "image_980438.jpg")
+    if os.path.exists(img_ssh):
+        st.image(img_ssh, caption="この $ のあとにコマンドを貼り付けます")
+
+    st.success("👇 下の枠内のコードをコピーして、黒い画面に貼り付け（右クリック→貼り付け）、Enterキーを1回だけ押してください。")
 
     # 実行コマンド
     REBOOT_COMMAND = "pkill -f main.py; nohup python3 main.py > system.log 2>&1 &"
@@ -225,16 +226,12 @@ with tab_trouble:
     
     st.markdown("""
     <div style="background-color: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; margin-top: 10px;">
-        <p style="margin-bottom: 5px; font-weight: bold;">💡 何が起きるの？</p>
+        <p style="margin-bottom: 5px; font-weight: bold;">💡 コピペした後は？</p>
         <p style="font-size: 0.9rem; color: #475569; margin-bottom: 0;">
-            ・フリーズしているプログラムを一度強制終了し、最新の状態で起動し直します。<br>
-            ・Enterを押した後、新しい行が出れば成功です。黒い画面はそのまま閉じてOKです。
+            ・Enterを押して新しい行が出れば成功です。その後、黒い画面はバツボタンで閉じて構いません。<br>
+            ・<b>5〜10分後</b>にスプレッドシートのH列に「完了」が出始めるか確認してください。
         </p>
     </div>
-    
-    ### 4️⃣ 動作確認
-    操作後、**5〜10分**ほど待ってからスプレッドシートを確認してください。
-    H列に「完了」という文字が書き込まれ始めれば、復旧完了です！
     """, unsafe_allow_html=True)
 
 # --- 4. リアルタイム料金 ---
@@ -254,6 +251,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
