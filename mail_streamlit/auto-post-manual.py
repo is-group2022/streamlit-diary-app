@@ -1,4 +1,6 @@
 import os
+import pandas as pd
+from datetime import datetime, time
 import streamlit as st
 import pandas as pd
 from google.cloud import bigquery
@@ -44,11 +46,53 @@ tab_manual, tab_operation, tab_trouble, tab_billing = st.tabs([
     "📊 リアルタイム料金"
 ])
 
-# --- 1. システムの仕組み (GCE/GCSを詳しく解説) ---
+# --- 1. システムの仕組み (稼働状況チェック付き) ---
 with tab_manual:
-    st.header("1. クラウドインフラの解説")
+    st.header("📊 システム稼働状況 ＆ インフラ解説")
     
+    # 現在時刻の取得
+    now = datetime.now()
+    current_time = now.time()
     
+    # 稼働時間外（06:00 - 11:00）の判定
+    is_off_hours = time(6, 0) <= current_time <= time(11, 0)
+
+    # --- 投稿状況のリアルタイム判定 ---
+    try:
+        # 投稿管理シートの読み込み
+        sh_status = GC.open_by_key("1sEzw59aswIlA-8_CTyUrRBLN7OnrRIJERKUZ_bELMrY")
+        ws_status = sh_status.sheet1 
+        data = ws_status.get_all_values()
+        df = pd.DataFrame(data[1:], columns=data[0])
+        
+        # H列（投稿ステータス）に「完了」が含まれる行を抽出（表記のブレに対応）
+        done_rows = df[df['投稿ステータス'].str.contains("完了", na=False)]
+
+        if is_off_hours:
+            # 【時間外】の表示
+            st.warning(f"### ☕ 現在はシステムメンテナンス時間です (06:00〜11:00)")
+            st.info("この時間は自動投稿が停止しています。11:01以降に順次再開されます。")
+        
+        elif not done_rows.empty:
+            # 【稼働中】最新の投稿記録を取得
+            last_post = done_rows.iloc[-1]
+            status_val = last_post['投稿ステータス']
+            shop_name = last_post.get('店名', '不明')
+            
+            st.success(f"### ✅ システムは正常に稼働中です")
+            st.markdown(f"**最新の投稿確認:** `{status_val}` ／ **店舗:** `{shop_name}`")
+            st.caption("※H列に『完了』の文字が書き込まれていることを確認しました。")
+        else:
+            # 【異常の可能性】完了が1件もない場合
+            st.error("### ⚠️ 投稿完了が確認できません")
+            st.markdown("未投稿のデータが多いか、システムが停止している可能性があります。トラブル対応タブを確認してください。")
+            
+    except Exception as e:
+        st.error("稼働状況の取得に失敗しました。シートのIDを確認してください。")
+
+    st.divider()
+
+    # --- インフラ解説セクション ---
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("""
@@ -56,9 +100,9 @@ with tab_manual:
             <h2 style="color: #2563eb;">🚀 GCE (Compute Engine)</h2>
             <p><b>「24時間動く仮想パソコン」です。</b></p>
             <ul>
-                <li>Googleのデータセンター内で、あなたのプログラムを実行し続けます。</li>
-                <li><b>役割:</b> スプレッドシートを監視し、時間になったらブラウザを自動操作して投稿します。</li>
-                <li><b>メリット:</b> 自宅のPCを閉じても、ネット上で作業が完結します。</li>
+                <li>スプレッドシートのH列を常に監視し、「空欄」を見つけると投稿を開始します。</li>
+                <li>投稿が終わると、H列に<b>「完了: 時刻」</b>と書き込みます。</li>
+                <li><b>停止時間:</b> 毎日06:00〜11:00は、システム負荷軽減のためお休みしています。</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -70,7 +114,7 @@ with tab_manual:
             <ul>
                 <li>投稿に使用する写真は、すべてここに保存されます。</li>
                 <li><b>役割:</b> サーバー(GCE)が投稿時にここへ写真を取りに来ます。</li>
-                <li><b>ルール:</b> ファイル名の先頭を「時間_名前」にすることで、システムが正しく写真を識別します。</li>
+                <li><b>注意:</b> 画像がないと、GCEは投稿をスキップし、H列も更新されません。</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -258,6 +302,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
