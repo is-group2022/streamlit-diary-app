@@ -1,4 +1,5 @@
 import os
+import re
 import pandas as pd
 from datetime import datetime, time
 import streamlit as st
@@ -63,7 +64,7 @@ tab_manual, tab_operation, tab_trouble, tab_billing = st.tabs([
     "📊 リアルタイム料金"
 ])
 
-# --- 1. システムの仕組み (強制広域スキャン版) ---
+# --- 1. システムの仕組み (時刻比較・最新特定版) ---
 with tab_manual:
     st.header("📊 システム稼働状況 ＆ インフラ解説")
     
@@ -71,54 +72,58 @@ with tab_manual:
     
     st.markdown("#### 🔄 リアルタイム投稿確認")
     if st.button("最新の投稿状況をチェックする"):
-        target_sheets = ["投稿Aアカウント", "投稿Bアカウント", "投稿Cアカウント", "投稿Dアカウント"]
         spreadsheet_id = "1sEzw59aswIlA-8_CTyUrRBLN7OnrRIJERKUZ_bELMrY"
+        target_sheets = ["投稿Aアカウント", "投稿Bアカウント", "投稿Cアカウント", "投稿Dアカウント"]
         
         status_summary = []
 
-        with st.spinner('シートの深部まで最新データをスキャン中...'):
+        with st.spinner('全行から最新時刻のログを探索中...'):
             try:
                 sh_status = GC.open_by_key(spreadsheet_id)
                 
                 for name in target_sheets:
                     try:
                         ws = sh_status.worksheet(name)
-                        
-                        # 💡 解決策の核心：
-                        # APIに任せず、こちらから「A1からJ2000まで」のように範囲を強制指定します。
-                        # これにより、APIが「データがない」と勝手に判断してカットした下の行を強制的に取得します。
-                        # ※もし2000行以上ある場合は、この数字を増やしてください。
+                        # 💡 範囲を広めに取得（H列を含むJ列まで）
                         raw_data = ws.get('A1:J2000') 
                         
+                        latest_entry = None
+                        latest_time_obj = None
+
                         if raw_data:
-                            found = False
-                            # 下から上へスキャン
-                            for i in range(len(raw_data) - 1, 0, -1):
-                                row = raw_data[i]
-                                # H列（インデックス7）があるか、かつ「完了」が含まれるか
+                            # 💡 全行をループして「時間」を比較する
+                            for i, row in enumerate(raw_data):
                                 if len(row) >= 8:
                                     status_cell = str(row[7]).strip()
-                                    if "完了" in status_cell:
-                                        shop_name = row[1] if len(row) > 1 else "不明"
-                                        status_summary.append({
-                                            "シート": name,
-                                            "状況": status_cell,
-                                            "店舗": shop_name,
-                                            "更新行": i + 1
-                                        })
-                                        found = True
-                                        break
+                                    # 「完了: 12:34:56」のような形式から時刻を抽出
+                                    match = re.search(r'(\d{1,2}:\d{2}:\d{2})', status_cell)
+                                    if "完了" in status_cell and match:
+                                        time_str = match.group(1)
+                                        try:
+                                            # 時刻文字列を比較可能なオブジェクトに変換
+                                            current_time_obj = datetime.strptime(time_str, '%H:%M:%S')
+                                            
+                                            # 💡 暫定的に「今日」の出来事として比較
+                                            if latest_time_obj is None or current_time_obj > latest_time_obj:
+                                                latest_time_obj = current_time_obj
+                                                latest_entry = {
+                                                    "シート": name,
+                                                    "状況": status_cell,
+                                                    "店舗": row[1] if len(row) > 1 else "不明",
+                                                    "行": i + 1
+                                                }
+                                        except:
+                                            continue
                             
-                            if not found:
-                                status_summary.append({"シート": name, "状況": "💤 待機中", "店舗": "-", "更新行": "-"})
+                        if latest_entry:
+                            status_summary.append(latest_entry)
                         else:
-                            status_summary.append({"シート": name, "状況": "⚪ 範囲内にデータなし", "店舗": "-", "更新行": "-"})
-                            
+                            status_summary.append({"シート": name, "状況": "💤 待機中", "店舗": "-", "行": "-"})
+                        
                     except Exception as e:
-                        status_summary.append({"シート": name, "状況": "⚠️ 読込エラー", "店舗": "-", "更新行": "-"})
+                        status_summary.append({"シート": name, "状況": "⚠️ 読込エラー", "店舗": "-", "行": "-"})
 
-                # 表示
-                st.success(f"✅ 強制広域同期完了（確認時刻: {datetime.now(JST).strftime('%H:%M:%S')}）")
+                st.success(f"✅ 全行スキャン完了（確認時刻: {datetime.now(JST).strftime('%H:%M:%S')}）")
                 st.table(pd.DataFrame(status_summary))
 
             except Exception as e:
@@ -288,6 +293,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
