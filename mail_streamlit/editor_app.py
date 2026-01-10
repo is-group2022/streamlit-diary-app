@@ -53,7 +53,7 @@ GC, GCS_CLIENT = get_clients()
 SPRS = GC.open_by_key(SHEET_ID)
 
 # --- 4. UI構築 ---
-st.set_page_config(layout="wide", page_title="写メ日記エディタ")
+st.set_page_config(layout="wide", page_title="写メ日記投稿管理")
 
 # カスタムCSS
 st.markdown("""
@@ -183,4 +183,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
