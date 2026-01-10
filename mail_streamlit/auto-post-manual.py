@@ -164,6 +164,7 @@ with tab_trouble:
     
     # URL設定
     URL_GCE = "https://console.cloud.google.com/compute/instances?project=project-d2e471f9-c395-4015-aea"
+    ADMIN_EMAIL = "isgroup0001@gmail.com"
 
     with st.expander("❓ 投稿が動かない・「完了」にならない", expanded=True):
         st.markdown("""
@@ -183,45 +184,47 @@ with tab_trouble:
     st.subheader("🛠 システムを「叩き起こす」方法（強制再起動）")
     st.error("⚠️ 注意：どうしても投稿が再開されない時だけ、以下の手順を順番に試してください。")
 
+    # 手順の解説
     st.markdown(f"""
-    「なぜか動かない」という時は、システムの脳（プログラム）がフリーズしている可能性があります。
-    PCの電源を入れ直すのと同じ感覚で、以下の操作を行ってください。
+    ### 1️⃣ Google Cloud にログインする
+    必ず **「アイエスグループ」** のアカウントでログインしてください。
+    * **メールアドレス**: `{ADMIN_EMAIL}`
     
-    ### 1️⃣ Google Cloud 画面を開く
-    まず、以下のリンクから管理画面にアクセスしてください。
-    [👉 Google Cloud コンソールを開く]({URL_GCE})
-    
+    [👉 ここをクリックして管理画面を開く]({URL_GCE})
+
     ### 2️⃣ SSHボタンを押す
-    一覧にある「instance-1」などの横にある **「SSH」** という青い文字をクリックします。
-    黒い画面（ターミナル）が新しく立ち上がります。
+    ログインすると、下の画像のような画面が表示されます。
+    一覧にある `auto-post-server` の右側にある **「SSH」** という文字をクリックしてください。
     """)
-    
-    # SSH接続のイメージ図
-    st.info("💡 接続に1分ほどかかることがありますが、そのまま待てば大丈夫です。")
-    # 
+
+    # アップロード画像を表示
+    st.image("image_980436.png", caption="Google Cloud 管理画面：この『SSH』ボタンをクリックします")
 
     st.markdown("""
     ### 3️⃣ 魔法の言葉（コマンド）を貼り付ける
-    黒い画面が表示されたら、以下のコードを**コピーして貼り付け、Enterキー**を押してください。
+    黒い画面（別ウィンドウ）が立ち上がったら、接続されるまで1分ほど待ちます。
+    カーソルが点滅したら、以下のコードを**コピーして貼り付け、Enterキー**を1回押してください。
     """)
 
-    # 初心者向けに1行にまとめ、かつ何をしているかコメントを追加
+    # 実行コマンド
     REBOOT_COMMAND = "pkill -f main.py; nohup python3 main.py > system.log 2>&1 &"
-    
     st.code(REBOOT_COMMAND, language="bash")
     
-    st.markdown(f"""
-    > **この操作で何が起きる？**
-    > 1. 今動いている古いプログラムを一度強制終了します (`pkill`)
-    > 2. 新しく最新の状態でプログラムを起動します (`python3 main.py`)
-    > 3. 画面を閉じても動き続けるようにします (`nohup`)
+    st.markdown("""
+    <div style="background-color: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; margin-top: 10px;">
+        <p style="margin-bottom: 5px; font-weight: bold;">💡 何が起きるの？</p>
+        <p style="font-size: 0.9rem; color: #475569; margin-bottom: 0;">
+            ・止まっているプログラムを一度終了させ、新しく起動し直します。<br>
+            ・Enterを押した後、新しい行（$マークなど）が出れば成功です。黒い画面は閉じてOKです。
+        </p>
+    </div>
+    
+    ### 4️⃣ 動作確認
+    操作後、**5〜10分**ほど待ってからスプレッドシートを確認してください。
+    H列に「完了」という文字が書き込まれ始めれば、復旧完了です！
+    """, unsafe_allow_html=True)
 
-    ### 4️⃣ 確認
-    Enterを押して新しい行が出てきたら完了です。黒い画面は閉じて構いません。
-    5〜10分ほど待って、スプレッドシートのH列に「完了」が出始めるか確認してください。
-    """)
-
-    st.info("これでも直らない場合は、システムを構築した担当者へ連絡してください。")
+    st.info(f"※ログインできない、または画像と画面が違う場合は、{ADMIN_EMAIL} の権限を確認してください。")
 
 # --- 4. リアルタイム料金 ---
 with tab_billing:
@@ -240,6 +243,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
