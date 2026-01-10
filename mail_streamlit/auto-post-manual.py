@@ -76,18 +76,50 @@ with tab_manual:
 
 # --- 2. 日常の操作 ---
 with tab_operation:
-    st.header("📝 日々の運用ルール")
-    st.markdown("""
+    st.header("📝 運用マニュアル：2つのアプリの使い分け")
+    
+    # URL設定（実際のURLに書き換えてください）
+    URL_REGIST = "https://app-diary-app-krfts9htfjkvrq275esxfq.streamlit.app/"
+    URL_EDIT = "https://app-diary-app-vstgarmm2invbrbxhuqpra.streamlit.app/"
+
+    st.markdown(f"""
     <div class="card">
-        <h3>✅ 投稿予約の3ステップ</h3>
-        <ol>
-            <li><b>スプレッドシート更新</b>: G列に時間(1200等)、F列に名前を入力。</li>
-            <li><b>ステータス解除</b>: H列を「空欄」にする（ここが埋まっていると動きません）。</li>
-            <li><b>画像確認</b>: GCSに指定のファイル名で画像があるかチェック。</li>
-        </ol>
-        <hr>
-        <h3>🔄 再投稿したい場合</h3>
-        <p>H列に「完了」と出ていても、その文字を消して<b>空欄にするだけ</b>で、次の巡回時に再度投稿が始まります。</p>
+        <h2 style="color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 10px;">✨ ステップ1：新規データの登録</h2>
+        <p>新しい日記を投稿予約するときは<b>「登録用アプリ」</b>を使います。最大40件まで一気に仕込めます。</p>
+        <div style="background-color: #f8fafc; padding: 20px; border-radius: 10px; border-left: 5px solid #2563eb; margin: 20px 0;">
+            <ol style="line-height: 2;">
+                <li><a href="{URL_REGIST}" target="_blank"><b>登録用アプリ</b></a> を開く。</li>
+                <li>上部パネルで<b>「アカウント(A〜D)」「エリア」「店名」</b>を選択。</li>
+                <li>下の一覧に<b>「時間・名前・タイトル・本文」</b>を入力し、画像をアップロード。</li>
+                <li>一番下の <b>「🔥 データを一括登録する」</b> をクリック！</li>
+            </ol>
+        </div>
+        <p style="font-size: 0.9rem; color: #64748b;">※画像はシステムが自動的に「時間_名前」の名前にリネームして保存するので、元のファイル名は何でもOKです。</p>
+    </div>
+
+    <div class="card">
+        <h2 style="color: #10b981; border-bottom: 2px solid #10b981; padding-bottom: 10px;">🛠 ステップ2：内容の確認・修正</h2>
+        <p>「登録した内容を直したい」「画像が合っているか見たい」ときは<b>「編集・管理用アプリ」</b>を使います。</p>
+        <div style="background-color: #f0fdf4; padding: 20px; border-radius: 10px; border-left: 5px solid #10b981; margin: 20px 0;">
+            <ol style="line-height: 2;">
+                <li><a href="{URL_EDIT}" target="_blank"><b>編集・管理用アプリ</b></a> を開く。</li>
+                <li>直したい店舗を選択すると、登録済みの日記と<b>画像がセットで表示</b>されます。</li>
+                <li>本文を書き換えたら、そのすぐ下の <b>「💾 内容を保存」</b> をクリック。</li>
+                <li>画像が足りない場合は「画像追加」からその場でアップロード可能です。</li>
+            </ol>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 style="color: #f59e0b; border-bottom: 2px solid #f59e0b; padding-bottom: 10px;">🔄 ステップ3：再投稿・メンテナンス</h2>
+        <p>同じ内容をもう一度投稿したい場合や、契約終了時のデータ整理について。</p>
+        <div style="background-color: #fffbeb; padding: 20px; border-radius: 10px; border-left: 5px solid #f59e0b; margin: 20px 0;">
+            <ul style="line-height: 2; list-style-type: none; padding-left: 0;">
+                <li><b>【再投稿したい時】</b><br>スプレッドシートのH列にある「完了」という文字を消して<b>「空欄」</b>にするだけ！システムが未投稿と判断して再度実行します。</li>
+                <br>
+                <li><b>【店舗が終了した時】</b><br>編集アプリの「店舗アカウント状況」タブから、対象の店にチェックを入れて<b>「【落ち店】へ移動」</b>を実行。日記と画像が自動でバックアップ保管されます。</li>
+            </ul>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -123,3 +155,4 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
