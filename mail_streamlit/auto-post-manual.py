@@ -64,30 +64,41 @@ tab_manual, tab_operation, tab_trouble, tab_billing = st.tabs([
     "📊 リアルタイム料金"
 ])
 
-# --- 1. システムの仕組み (基準時刻最接近スキャン版) ---
+# --- 1. システムの仕組み (メンテナンス判定 & 3時間停止警告版) ---
 with tab_manual:
     st.header("📊 システム稼働状況 ＆ インフラ解説")
     
+    # 日本時間(JST)の設定
     JST = timezone(timedelta(hours=+9), 'JST')
     now_jst = datetime.now(JST)
-    # 💡 基準となる「確認時刻」を秒単位で計算
-    base_seconds = now_jst.hour * 3600 + now_jst.minute * 60 + now_jst.second
+    current_time = now_jst.time()
     
-    st.markdown("#### 🔄 リアルタイム投稿確認")
+    # 1. メンテナンス判定（06:00 - 11:00）
+    is_off_hours = time(6, 0) <= current_time <= time(11, 0)
+
+    if is_off_hours:
+        st.warning(f"### ☕ 現在はシステムメンテナンス時間です (06:00〜11:00)")
+        st.info("この時間は自動投稿が停止しています。11:01以降に自動で再開されます。")
+        status_color = "warning"
+    else:
+        st.markdown(f"#### 🔄 リアルタイム投稿確認 (現在: {now_jst.strftime('%H:%M:%S')})")
+        status_color = "normal"
+
     if st.button("最新の投稿状況をチェックする"):
         spreadsheet_id = "1sEzw59aswIlA-8_CTyUrRBLN7OnrRIJERKUZ_bELMrY"
         target_sheets = ["投稿Aアカウント", "投稿Bアカウント", "投稿Cアカウント", "投稿Dアカウント"]
         
         status_summary = []
+        any_critical_error = False # 3時間停止があるかどうかのフラグ
+        base_seconds = now_jst.hour * 3600 + now_jst.minute * 60 + now_jst.second
 
-        with st.spinner(f'確認時刻 {now_jst.strftime("%H:%M:%S")} に最も近い記録を探索中...'):
+        with st.spinner('全ログをスキャンして稼働状況を判定中...'):
             try:
                 sh_status = GC.open_by_key(spreadsheet_id)
                 
                 for name in target_sheets:
                     try:
                         ws = sh_status.worksheet(name)
-                        # データ範囲を取得
                         raw_data = ws.get('A1:J1500') 
                         
                         best_row = None
@@ -97,7 +108,6 @@ with tab_manual:
                             for i, row in enumerate(raw_data):
                                 if len(row) >= 8:
                                     status_cell = str(row[7]).strip()
-                                    # 「完了: 03:05:10」などの時刻を抽出
                                     match = re.search(r'(\d{1,2}:\d{2}:\d{2})', status_cell)
                                     
                                     if "完了" in status_cell and match:
@@ -105,35 +115,57 @@ with tab_manual:
                                         h, m, s = map(int, time_str.split(':'))
                                         cell_seconds = h * 3600 + m * 60 + s
                                         
-                                        # 💡 基準時刻(今)との「距離」を計算
-                                        # 0時を跨ぐ差(23:59と00:01)も考慮した絶対距離
+                                        # 基準時刻(今)との「距離」を計算（日付跨ぎ補正込）
                                         diff = abs(base_seconds - cell_seconds)
-                                        if diff > 43200: # 12時間以上の差は日付跨ぎとして補正
+                                        if diff > 43200: 
                                             diff = 86400 - diff
                                         
-                                        # 最も距離が短い（今に近い）ものを採用
                                         if diff < min_diff:
                                             min_diff = diff
                                             best_row = {
                                                 "シート": name,
                                                 "状況": status_cell,
                                                 "店舗": row[1] if len(row) > 1 else "不明",
-                                                "確認時点との差": f"{int(diff)}秒"
+                                                "経過": int(diff)
                                             }
                             
                         if best_row:
+                            # 💡 判定ロジック：メンテナンス時間外で3時間(10800秒)以上空いたら赤
+                            if not is_off_hours and best_row["経過"] > 10800:
+                                best_row["判定"] = "🔴 3時間以上停止（要確認）"
+                                any_critical_error = True
+                            else:
+                                best_row["判定"] = "🟢 正常稼働中"
+                            
+                            # 秒表示を読みやすく変換
+                            mins = best_row["経過"] // 60
+                            best_row["経過時間"] = f"{mins}分前" if mins < 60 else f"{mins//60}時間{mins%60}分前"
                             status_summary.append(best_row)
                         else:
-                            status_summary.append({"シート": name, "状況": "💤 投稿待ち", "店舗": "-", "確認時点との差": "-"})
+                            status_summary.append({"シート": name, "状況": "💤 投稿待ち", "店舗": "-", "判定": "🟡 待機中", "経過時間": "-"})
                         
                     except Exception:
-                        status_summary.append({"シート": name, "状況": "⚠️ 読込エラー", "店舗": "-", "確認時点との差": "-"})
+                        status_summary.append({"シート": name, "状況": "⚠️ エラー", "店舗": "-", "判定": "🔴 読込失敗", "経過時間": "-"})
 
-                st.success(f"✅ 同期完了（確認時刻: {now_jst.strftime('%H:%M:%S')}）")
-                st.table(pd.DataFrame(status_summary))
+                # --- 最終ステータス表示 ---
+                if is_off_hours:
+                    st.warning("✅ メンテナンス時間通りの停止を確認しました。")
+                elif any_critical_error:
+                    st.error("🚨 警告: 3時間以上投稿が止まっているアカウントがあります！")
+                else:
+                    st.success(f"✅ 全アカウント正常稼働中（確認時刻: {now_jst.strftime('%H:%M:%S')}）")
+
+                # テーブル表示
+                df_res = pd.DataFrame(status_summary)
+                st.table(df_res[["シート", "判定", "状況", "店舗", "経過時間"]])
 
             except Exception as e:
                 st.error(f"接続エラー: {e}")
+    else:
+        if not is_off_hours:
+            st.info("上のボタンを押すと、3時間以上の停止がないか自動判定します。")
+
+    st.divider()
     
     # --- インフラ解説セクション ---
     col1, col2 = st.columns(2)
@@ -299,6 +331,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
