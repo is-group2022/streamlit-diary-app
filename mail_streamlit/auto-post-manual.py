@@ -62,76 +62,79 @@ tab_manual, tab_operation, tab_trouble, tab_billing = st.tabs([
     "📊 リアルタイム料金"
 ])
 
-# --- 1. システムの仕組み (エラー診断機能付き) ---
+# --- 1. システムの仕組み (手動更新ボタン付き) ---
 with tab_manual:
     st.header("📊 システム稼働状況 ＆ インフラ解説")
     
-    # 現在時刻の取得とメンテナンス判定（06:00 - 11:00）
+    # 現在時刻の取得とメンテナンス判定
     now = datetime.now()
     current_time = now.time()
     is_off_hours = time(6, 0) <= current_time <= time(11, 0)
 
-    # 監視対象のシート名
-    target_sheets = ["投稿Aアカウント", "投稿Bアカウント", "投稿Cアカウント", "投稿Dアカウント"]
-    spreadsheet_id = "1sEzw59aswIlA-8_CTyUrRBLN7OnrRIJERKUZ_bELMrY"
-    
-    any_active = False
-    status_summary = []
+    # 1. メンテナンス時間の表示（ボタンより上に出して注意を促す）
+    if is_off_hours:
+        st.warning(f"### ☕ 現在はシステムメンテナンス時間です (06:00〜11:00)")
+        st.info("この時間は自動投稿が停止しています。11:01以降に再開されます。")
 
-    # --- 各シートの状況をチェック ---
-    try:
-        sh_status = GC.open_by_key(spreadsheet_id)
-        all_worksheets = [ws.title for ws in sh_status.worksheets()]
-
-        for name in target_sheets:
-            if name not in all_worksheets:
-                status_summary.append({"シート": name, "状況": "❌ 名前違い", "店舗": "-", "稼働": False})
-                continue
-
-            try:
-                ws = sh_status.worksheet(name)
-                data = ws.get_all_values()
-                if len(data) > 1:
-                    df = pd.DataFrame(data[1:], columns=data[0])
-                    if '投稿ステータス' in df.columns:
-                        done_rows = df[df['投稿ステータス'].str.contains("完了", na=False)]
-                        if not done_rows.empty:
-                            last_post = done_rows.iloc[-1]
-                            status_summary.append({
-                                "シート": name,
-                                "状況": last_post['投稿ステータス'],
-                                "店舗": last_post.get('店名', '不明'),
-                                "稼働": True
-                            })
-                            any_active = True
-                        else:
-                            status_summary.append({"シート": name, "状況": "💤 待機中", "店舗": "-", "稼働": False})
-                    else:
-                        status_summary.append({"シート": name, "状況": "⚠️ 列名違い", "店舗": "-", "稼働": False})
-                else:
-                    status_summary.append({"シート": name, "状況": "⚪ 空白", "店舗": "-", "稼働": False})
-            except:
-                status_summary.append({"シート": name, "状況": "⚠️ エラー", "店舗": "-", "稼働": False})
-
-        # --- 表示結果 ---
-        if is_off_hours:
-            st.warning(f"### ☕ 現在はシステムメンテナンス時間です (06:00〜11:00)")
-            st.info("この時間は自動投稿が停止しています。11:01以降に再開されます。")
+    # 2. 手動更新ボタン
+    st.markdown("#### 🔄 リアルタイム投稿確認")
+    if st.button("最新の投稿状況をチェックする"):
+        # 監視設定
+        target_sheets = ["投稿Aアカウント", "投稿Bアカウント", "投稿Cアカウント", "投稿Dアカウント"]
+        spreadsheet_id = "1sEzw59aswIlA-8_CTyUrRBLN7OnrRIJERKUZ_bELMrY"
         
-        elif any_active:
-            st.success(f"### ✅ システムは正常に稼働中です")
-            status_df = pd.DataFrame(status_summary)
-            st.table(status_df[["シート", "状況", "店舗"]])
-        else:
-            st.error("### ⚠️ 稼働状況が確認できません")
-            if status_summary:
+        any_active = False
+        status_summary = []
+
+        with st.spinner('スプレッドシートを確認中...'):
+            try:
+                sh_status = GC.open_by_key(spreadsheet_id)
+                all_worksheets = [ws.title for ws in sh_status.worksheets()]
+
+                for name in target_sheets:
+                    if name not in all_worksheets:
+                        status_summary.append({"シート": name, "状況": "❌ 名前違い", "店舗": "-", "稼働": False})
+                        continue
+
+                    try:
+                        ws = sh_status.worksheet(name)
+                        data = ws.get_all_values()
+                        if len(data) > 1:
+                            df = pd.DataFrame(data[1:], columns=data[0])
+                            if '投稿ステータス' in df.columns:
+                                done_rows = df[df['投稿ステータス'].str.contains("完了", na=False)]
+                                if not done_rows.empty:
+                                    last_post = done_rows.iloc[-1]
+                                    status_summary.append({
+                                        "シート": name,
+                                        "状況": last_post['投稿ステータス'],
+                                        "店舗": last_post.get('店名', '不明'),
+                                        "稼働": True
+                                    })
+                                    any_active = True
+                                else:
+                                    status_summary.append({"シート": name, "状況": "💤 待機中", "店舗": "-", "稼働": False})
+                            else:
+                                status_summary.append({"シート": name, "状況": "⚠️ 列名違い", "店舗": "-", "稼働": False})
+                        else:
+                            status_summary.append({"シート": name, "状況": "⚪ 空白", "店舗": "-", "稼働": False})
+                    except:
+                        status_summary.append({"シート": name, "状況": "⚠️ エラー", "店舗": "-", "稼働": False})
+
+                # --- 結果表示 ---
+                if any_active:
+                    st.success(f"✅ システム稼働確認（最終確認: {datetime.now().strftime('%H:%M:%S')}）")
+                else:
+                    st.error("⚠️ 稼働状況が確認できません（本日の完了記録なし）")
+                
                 status_df = pd.DataFrame(status_summary)
                 st.table(status_df[["シート", "状況", "店舗"]])
-            st.markdown("全シートで「完了」が確認できません。本日分がまだ始まっていないか、システムが止まっている可能性があります。")
-            
-    except Exception as e:
-        st.error(f"### ❌ スプレッドシートにアクセスできません")
-        st.markdown(f"エラー詳細: `{str(e)}`")
+
+            except Exception as e:
+                st.error(f"### ❌ スプレッドシートにアクセスできません")
+                st.markdown(f"エラー詳細: `{str(e)}`")
+    else:
+        st.info("上のボタンを押すと、現在の投稿状況を読み込みます。")
 
     st.divider()
     # --- インフラ解説セクション ---
@@ -298,3 +301,4 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
