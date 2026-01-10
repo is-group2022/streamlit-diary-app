@@ -184,26 +184,30 @@ with tab_trouble:
     st.subheader("🛠 システムを「叩き起こす」方法（強制再起動）")
     st.error("⚠️ 注意：どうしても投稿が再開されない時だけ、以下の手順を順番に試してください。")
 
-    # 手順の解説
     st.markdown(f"""
     ### 1️⃣ Google Cloud にログインする
+    **※ 非常に重要 ※**
     必ず **「アイエスグループ」** のアカウントでログインしてください。
-    * **メールアドレス**: `{ADMIN_EMAIL}`
     
-    [👉 ここをクリックして管理画面を開く]({URL_GCE})
+    * **使用するメール**: `{ADMIN_EMAIL}`
+    
+    [👉 Google Cloud コンソール（管理画面）を開く]({URL_GCE})
 
     ### 2️⃣ SSHボタンを押す
-    ログインすると、下の画像のような画面が表示されます。
-    一覧にある `auto-post-server` の右側にある **「SSH」** という文字をクリックしてください。
+    ログイン後、一覧にある `auto-post-server` の右側にある **「SSH」** という青い文字をクリックしてください。
     """)
 
-    # アップロード画像を表示
-    st.image("image_980436.png", caption="Google Cloud 管理画面：この『SSH』ボタンをクリックします")
+    # --- 画像表示（エラー対策付き） ---
+    try:
+        # ファイル名が .jpg であることを確認してください
+        st.image("image_980436.jpg", caption="Google Cloud 画面：この『SSH』をクリック")
+    except:
+        st.warning("📸 (画像ファイル image_980436.jpg が読み込めませんでした) 画面右端の『接続』列にある青い【SSH】という文字を探してください。")
 
-    st.markdown("""
+    st.markdown(f"""
     ### 3️⃣ 魔法の言葉（コマンド）を貼り付ける
-    黒い画面（別ウィンドウ）が立ち上がったら、接続されるまで1分ほど待ちます。
-    カーソルが点滅したら、以下のコードを**コピーして貼り付け、Enterキー**を1回押してください。
+    黒い画面（別ウィンドウ）が立ち上がったら、1分ほど待ちます。
+    文字が止まり、末尾に `$` マークなどが出てカーソルが点滅したら、下のコードを**コピーして貼り付け、Enterキー**を1回押してください。
     """)
 
     # 実行コマンド
@@ -214,8 +218,8 @@ with tab_trouble:
     <div style="background-color: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; margin-top: 10px;">
         <p style="margin-bottom: 5px; font-weight: bold;">💡 何が起きるの？</p>
         <p style="font-size: 0.9rem; color: #475569; margin-bottom: 0;">
-            ・止まっているプログラムを一度終了させ、新しく起動し直します。<br>
-            ・Enterを押した後、新しい行（$マークなど）が出れば成功です。黒い画面は閉じてOKです。
+            ・フリーズしているプログラムを一度強制終了し、最新の状態で起動し直します。<br>
+            ・Enterを押した後、新しい行が出れば成功です。黒い画面はそのまま閉じてOKです。
         </p>
     </div>
     
@@ -223,8 +227,6 @@ with tab_trouble:
     操作後、**5〜10分**ほど待ってからスプレッドシートを確認してください。
     H列に「完了」という文字が書き込まれ始めれば、復旧完了です！
     """, unsafe_allow_html=True)
-
-    st.info(f"※ログインできない、または画像と画面が違う場合は、{ADMIN_EMAIL} の権限を確認してください。")
 
 # --- 4. リアルタイム料金 ---
 with tab_billing:
@@ -243,6 +245,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
