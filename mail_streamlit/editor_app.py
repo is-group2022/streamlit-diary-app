@@ -53,7 +53,7 @@ GC, GCS_CLIENT = get_clients()
 SPRS = GC.open_by_key(SHEET_ID)
 
 # --- 4. UI構築 ---
-st.set_page_config(layout="wide", page_title="写メ日記エディタ")
+st.set_page_config(layout="wide", page_title="写メ日記投稿データ管理")
 
 # カスタムCSS (重なりを修正)
 st.markdown("""
@@ -86,7 +86,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def main():
-    st.title("📸 写メ日記投稿管理")
+    st.title("📸 写メ日記投稿データ管理")
 
     # --- メイン画面上部の選択パネル ---
     st.markdown('<div class="filter-panel">', unsafe_allow_html=True)
@@ -199,3 +199,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
