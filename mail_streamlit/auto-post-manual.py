@@ -63,58 +63,50 @@ tab_manual, tab_operation, tab_trouble, tab_billing = st.tabs([
     "📊 リアルタイム料金"
 ])
 
-# --- 1. システムの仕組み (手動更新ボタン付き) ---
+# --- 1. システムの仕組み (最新行取得強化版) ---
 with tab_manual:
     st.header("📊 システム稼働状況 ＆ インフラ解説")
     
-    # --- 日本時間(JST)の設定 ---
     JST = timezone(timedelta(hours=+9), 'JST')
     now_jst = datetime.now(JST)
     current_time = now_jst.time()
     
-    # メンテナンス判定（06:00 - 11:00）
     is_off_hours = time(6, 0) <= current_time <= time(11, 0)
 
-    # 1. メンテナンス時間の表示
     if is_off_hours:
         st.warning(f"### ☕ 現在はシステムメンテナンス時間です (06:00〜11:00)")
         st.info("この時間は自動投稿が停止しています。11:01以降に再開されます。")
 
-    # 2. 手動更新ボタン
     st.markdown("#### 🔄 リアルタイム投稿確認")
     if st.button("最新の投稿状況をチェックする"):
-        # 監視設定
         target_sheets = ["投稿Aアカウント", "投稿Bアカウント", "投稿Cアカウント", "投稿Dアカウント"]
         spreadsheet_id = "1sEzw59aswIlA-8_CTyUrRBLN7OnrRIJERKUZ_bELMrY"
         
         any_active = False
         status_summary = []
 
-        with st.spinner('スプレッドシートから最新情報を取得中...'):
+        with st.spinner('最新の行を確認中...'):
             try:
-                # 💡 ボタン押下時に接続をリフレッシュして最新状態を確保
                 sh_status = GC.open_by_key(spreadsheet_id)
-                all_worksheets = [ws.title for ws in sh_status.worksheets()]
-
+                
                 for name in target_sheets:
-                    if name not in all_worksheets:
-                        status_summary.append({"シート": name, "状況": "❌ 名前違い", "店舗": "-", "稼働": False})
-                        continue
-
                     try:
                         ws = sh_status.worksheet(name)
-                        # 💡 get_all_values() はキャッシュを介さず最新の全セルを取得します
+                        # 💡 全データを取得
                         data = ws.get_all_values()
                         if len(data) > 1:
                             df = pd.DataFrame(data[1:], columns=data[0])
+                            
                             if '投稿ステータス' in df.columns:
-                                # 💡 文字列の前後空白を除去してから「完了」を探す
-                                df['投稿ステータス'] = df['投稿ステータス'].astype(str).str.strip()
-                                done_rows = df[df['投稿ステータス'].str.contains("完了", na=False)]
+                                # 💡 1. まず「完了」という文字が入っている行だけに絞り込む
+                                # 💡 2. インデックスをリセットせず、元の行番号を維持して最後を取得
+                                df_done = df[df['投稿ステータス'].str.contains("完了", na=False)]
                                 
-                                if not done_rows.empty:
-                                    # 💡 確実に「一番下の行」を最新として取得
-                                    last_post = done_rows.iloc[-1]
+                                if not df_done.empty:
+                                    # 💡 一番下の行（最新行）を確実に指定
+                                    last_index = df_done.index[-1]
+                                    last_post = df_done.loc[last_index]
+                                    
                                     status_summary.append({
                                         "シート": name,
                                         "状況": last_post['投稿ステータス'],
@@ -129,22 +121,19 @@ with tab_manual:
                         else:
                             status_summary.append({"シート": name, "状況": "⚪ 空白", "店舗": "-", "稼働": False})
                     except:
-                        status_summary.append({"シート": name, "状況": "⚠️ エラー", "店舗": "-", "稼働": False})
+                        status_summary.append({"シート": name, "状況": "⚠️ 読込失敗", "店舗": "-", "稼働": False})
 
-                # --- 結果表示 (日本時間で表示) ---
                 if any_active:
                     st.success(f"✅ システム稼働確認（最終確認: {datetime.now(JST).strftime('%H:%M:%S')}）")
                 else:
-                    st.error(f"⚠️ 稼働状況が確認できません（最終確認: {datetime.now(JST).strftime('%H:%M:%S')}）")
+                    st.error(f"⚠️ 完了記録が見つかりません")
                 
-                status_df = pd.DataFrame(status_summary)
-                st.table(status_df[["シート", "状況", "店舗"]])
+                st.table(pd.DataFrame(status_summary)[["シート", "状況", "店舗"]])
 
             except Exception as e:
-                st.error(f"### ❌ スプレッドシートにアクセスできません")
-                st.markdown(f"エラー詳細: `{str(e)}`")
+                st.error(f"### ❌ アクセス不可: {str(e)}")
     else:
-        st.info("上のボタンを押すと、現在の投稿状況を読み込みます。")
+        st.info("ボタンを押すとシートの「一番下の完了行」を読み込みます。")
 
     st.divider()
     
@@ -312,6 +301,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
