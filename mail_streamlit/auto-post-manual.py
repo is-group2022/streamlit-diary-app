@@ -312,7 +312,7 @@ with tab_trouble:
     <div style="background-color: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; margin-top: 10px;">
         <p style="margin-bottom: 5px; font-weight: bold;">✅ 操作が終わったら</p>
         <p style="font-size: 0.9rem; color: #475569; margin-bottom: 0;">
-            ・Enterを押して新しい行が出れば成功。5〜10分後にH列を確認してください。
+            ・Enterを押して新しい行が出れば成功。5〜10分後にページ1のリアルタイム投稿で確認してください。
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -331,6 +331,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
