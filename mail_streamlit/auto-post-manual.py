@@ -46,49 +46,69 @@ tab_manual, tab_operation, tab_trouble, tab_billing = st.tabs([
     "📊 リアルタイム料金"
 ])
 
-# --- 1. システムの仕組み (稼働状況チェック付き) ---
+# --- 1. システムの仕組み (4シート対応・稼働状況チェック) ---
 with tab_manual:
     st.header("📊 システム稼働状況 ＆ インフラ解説")
     
-    # 現在時刻の取得
+    # 現在時刻の取得とメンテナンス判定（06:00 - 11:00）
     now = datetime.now()
     current_time = now.time()
-    
-    # 稼働時間外（06:00 - 11:00）の判定
     is_off_hours = time(6, 0) <= current_time <= time(11, 0)
 
-    # --- 投稿状況のリアルタイム判定 ---
-    try:
-        # 投稿管理シートの読み込み
-        sh_status = GC.open_by_key("1sEzw59aswIlA-8_CTyUrRBLN7OnrRIJERKUZ_bELMrY")
-        ws_status = sh_status.sheet1 
-        data = ws_status.get_all_values()
-        df = pd.DataFrame(data[1:], columns=data[0])
-        
-        # H列（投稿ステータス）に「完了」が含まれる行を抽出（表記のブレに対応）
-        done_rows = df[df['投稿ステータス'].str.contains("完了", na=False)]
+    # 監視対象のシート名
+    target_sheets = ["投稿Aアカウント", "投稿Bアカウント", "投稿Cアカウント", "投稿Dアカウント"]
+    spreadsheet_id = "1sEzw59aswIlA-8_CTyUrRBLN7OnrRIJERKUZ_bELMrY"
+    
+    # 稼働判定用フラグ
+    any_active = False
+    status_summary = []
 
-        if is_off_hours:
-            # 【時間外】の表示
-            st.warning(f"### ☕ 現在はシステムメンテナンス時間です (06:00〜11:00)")
-            st.info("この時間は自動投稿が停止しています。11:01以降に順次再開されます。")
+    # --- 各シートの状況をチェック ---
+    try:
+        sh_status = GC.open_by_key(spreadsheet_id)
         
-        elif not done_rows.empty:
-            # 【稼働中】最新の投稿記録を取得
-            last_post = done_rows.iloc[-1]
-            status_val = last_post['投稿ステータス']
-            shop_name = last_post.get('店名', '不明')
-            
-            st.success(f"### ✅ システムは正常に稼働中です")
-            st.markdown(f"**最新の投稿確認:** `{status_val}` ／ **店舗:** `{shop_name}`")
-            st.caption("※H列に『完了』の文字が書き込まれていることを確認しました。")
+        for name in target_sheets:
+            try:
+                ws = sh_status.worksheet(name)
+                data = ws.get_all_values()
+                if len(data) > 1:
+                    df = pd.DataFrame(data[1:], columns=data[0])
+                    # 「完了」という文字が含まれる最新の行を探す
+                    done_rows = df[df['投稿ステータス'].str.contains("完了", na=False)]
+                    
+                    if not done_rows.empty:
+                        last_post = done_rows.iloc[-1]
+                        status_summary.append({
+                            "シート": name,
+                            "状況": last_post['投稿ステータス'],
+                            "店舗": last_post.get('店名', '不明'),
+                            "稼働": True
+                        })
+                        any_active = True
+                    else:
+                        status_summary.append({"シート": name, "状況": "完了記録なし", "店舗": "-", "稼働": False})
+                else:
+                    status_summary.append({"シート": name, "状況": "データなし", "店舗": "-", "稼働": False})
+            except:
+                status_summary.append({"シート": name, "状況": "シートが見つかりません", "店舗": "-", "稼働": False})
+
+        # --- 表示ロジック ---
+        if is_off_hours:
+            st.warning(f"### ☕ 現在はシステムメンテナンス時間です (06:00〜11:00)")
+            st.info("この時間は全アカウントの自動投稿を停止しています。11:01以降に再開されます。")
+        
+        elif any_active:
+            st.success(f"### ✅ システムは稼働中です")
+            # 4つのシートの状況をテーブルで表示
+            status_df = pd.DataFrame(status_summary)
+            st.table(status_df[["シート", "状況", "店舗"]])
+            st.caption("※いずれかのアカウントで『完了』が確認できたため、システムは動いています。")
         else:
-            # 【異常の可能性】完了が1件もない場合
-            st.error("### ⚠️ 投稿完了が確認できません")
-            st.markdown("未投稿のデータが多いか、システムが停止している可能性があります。トラブル対応タブを確認してください。")
+            st.error("### ⚠️ 全シートで完了記録が確認できません")
+            st.markdown("全アカウントが停止している可能性があります。トラブル対応タブを確認し、再起動を検討してください。")
             
     except Exception as e:
-        st.error("稼働状況の取得に失敗しました。シートのIDを確認してください。")
+        st.error("スプレッドシートへのアクセスに失敗しました。")
 
     st.divider()
 
@@ -100,9 +120,9 @@ with tab_manual:
             <h2 style="color: #2563eb;">🚀 GCE (Compute Engine)</h2>
             <p><b>「24時間動く仮想パソコン」です。</b></p>
             <ul>
-                <li>スプレッドシートのH列を常に監視し、「空欄」を見つけると投稿を開始します。</li>
-                <li>投稿が終わると、H列に<b>「完了: 時刻」</b>と書き込みます。</li>
-                <li><b>停止時間:</b> 毎日06:00〜11:00は、システム負荷軽減のためお休みしています。</li>
+                <li>投稿A〜Dの各シートを順番に巡回して監視しています。</li>
+                <li>空欄を見つけると投稿し、終わると<b>「完了:時刻」</b>を書き込みます。</li>
+                <li><b>停止時間:</b> 毎日06:00〜11:00はお休みです。</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -113,8 +133,8 @@ with tab_manual:
             <p><b>「画像専用のオンライン倉庫」です。</b></p>
             <ul>
                 <li>投稿に使用する写真は、すべてここに保存されます。</li>
-                <li><b>役割:</b> サーバー(GCE)が投稿時にここへ写真を取りに来ます。</li>
-                <li><b>注意:</b> 画像がないと、GCEは投稿をスキップし、H列も更新されません。</li>
+                <li>画像がないと、GCEは投稿をスキップして次のアカウント（シート）へ移ります。</li>
+                <li>その場合、H列は更新されないため「止まっている」ように見えます。</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -302,6 +322,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
