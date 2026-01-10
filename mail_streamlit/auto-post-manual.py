@@ -81,7 +81,8 @@ with tab_operation:
     # URL設定
     URL_REGIST = "https://app-diary-app-krfts9htfjkvrq275esxfq.streamlit.app/"
     URL_EDIT = "https://app-diary-app-vstgarmm2invbrbxhuqpra.streamlit.app/"
-    URL_STOCK_SHEET = "https://docs.google.com/spreadsheets/d/1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
+    # 登録アプリのTab4に直接誘導（StreamlitのURLパラメータ形式）
+    URL_REUSE = f"{URL_REGIST}?tab=④+使用可能日記文（ストック）"
 
     # 全体の説明
     st.info("このシステムは、日々の「投稿予約」と、店舗終了時の「データ整理」を自動化するために2つのアプリに分かれています。")
@@ -128,14 +129,18 @@ with tab_operation:
         <table style="width: 100%; border-collapse: collapse; font-size: 0.95rem;">
             <thead>
                 <tr style="border-bottom: 2px solid #e2e8f0;">
-                    <th style="text-align: left; padding: 10px; color: #64748b;">データ種別</th>
+                    <th style="text-align: left; padding: 10px; color: #64748b; width: 30%;">データ種別</th>
                     <th style="text-align: left; padding: 10px; color: #64748b;">移動後の状態</th>
                 </tr>
             </thead>
             <tbody>
                 <tr style="border-bottom: 1px solid #f1f5f9;">
                     <td style="padding: 12px; font-weight: bold;">📝 日記本文</td>
-                    <td style="padding: 12px;"><a href="{URL_STOCK_SHEET}" target="_blank" style="color: #2563eb;">ストック用シート</a>へ自動転記。後で再利用が可能です。</td>
+                    <td style="padding: 12px;">
+                        自動で倉庫へ転記されます。<br>
+                        <a href="{URL_REUSE}" target="_blank" style="color: #2563eb; font-weight: bold;">[登録アプリのTab 4]</a> 
+                        からいつでも内容を確認し、他の店舗へ再利用（コピー）できます。
+                    </td>
                 </tr>
                 <tr style="border-bottom: 1px solid #f1f5f9;">
                     <td style="padding: 12px; font-weight: bold;">🔑 ログイン情報</td>
@@ -143,7 +148,10 @@ with tab_operation:
                 </tr>
                 <tr>
                     <td style="padding: 12px; font-weight: bold;">🖼 画像データ</td>
-                    <td style="padding: 12px;">ストレージ内の「【落ち店】フォルダ」へ移動。整理された状態で保管されます。</td>
+                    <td style="padding: 12px;">
+                        ストレージ内の「【落ち店】フォルダ」へ移動。<br>
+                        こちらも登録アプリの <b>Tab 4</b> で一覧表示・再利用が可能です。
+                    </td>
                 </tr>
             </tbody>
         </table>
@@ -182,6 +190,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
