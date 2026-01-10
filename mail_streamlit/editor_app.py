@@ -62,10 +62,9 @@ st.markdown("""
     
     /* タイトルの余白設定：重ならないように調整 */
     .stApp h1 { 
-        padding-top: 30px !important; 
-        padding-bottom: 20px !important; 
+        padding-top: 20px !important; 
+        padding-bottom: 10px !important; 
         margin-bottom: 0px !important; 
-        line-height: 1.6 !important;
     }
     
     /* 選択パネルのスタイル */
@@ -73,7 +72,7 @@ st.markdown("""
         background-color: #f1f3f6;
         padding: 15px 20px;
         border-radius: 10px;
-        margin-top: 10px !important; 
+        margin-top: 10px !important; /* タイトルとの距離を少し確保 */
         margin-bottom: 20px;
         border: 1px solid #d1d5db;
     }
@@ -123,8 +122,7 @@ def main():
             st.selectbox("🏢 店舗", ["エリアを選択"], disabled=True)
             
     with c4:
-        # 検索窓のラベルを消すことで謎の枠（空間）を除去
-        search_query = st.text_input("検索", placeholder="🔍 名前・内容で検索...", label_visibility="collapsed")
+        search_query = st.text_input("🔍 名前・内容で検索", placeholder="キーワード入力...")
 
     st.markdown('</div>', unsafe_allow_html=True)
 
