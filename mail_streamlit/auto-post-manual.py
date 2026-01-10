@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import pandas as pd
 from google.cloud import bigquery
@@ -158,10 +159,6 @@ with tab_operation:
     </div>
     """, unsafe_allow_html=True)
 
-import os
-
-import os
-
 # --- 3. トラブル対応 ---
 with tab_trouble:
     st.header("🆘 困った時の解決ガイド")
@@ -188,37 +185,47 @@ with tab_trouble:
     st.subheader("🛠 システムを「叩き起こす」方法（強制再起動）")
     st.error("⚠️ 注意：どうしても投稿が再開されない時だけ、以下の手順を順番に試してください。")
 
-    st.markdown(f"""
-    ### 1️⃣ Google Cloud にログインする
-    **※ 重要 ※** 必ず **「アイエスグループ（{ADMIN_EMAIL}）」** のアカウントでログインしてください。
+    # 手順 1
+    st.markdown(f"### 1️⃣ Google Cloud にログインする")
+    st.markdown(f"必ず **「アイエスグループ（{ADMIN_EMAIL}）」** のアカウントでログインしてください。")
+    st.link_button("👉 Google Cloud コンソールを開く", URL_GCE)
+
+    # 手順 2
+    st.markdown("### 2️⃣ SSHボタンを押す")
+    st.markdown("一覧にある `auto-post-server` の右側にある **「SSH」** という青い文字をクリックします。")
     
-    [👉 Google Cloud コンソールを開く]({URL_GCE})
+    # 画像表示の工夫（ファイルが見つからない場合も考慮）
+    img_dir = os.path.dirname(__file__)
+    def show_img(file_name, caption):
+        path = os.path.join(img_dir, file_name)
+        if os.path.exists(path):
+            st.image(path, caption=caption)
+        else:
+            # フォルダ名を含めて再トライ
+            alt_path = os.path.join(img_dir, "mail_streamlit", file_name)
+            if os.path.exists(alt_path):
+                st.image(alt_path, caption=caption)
+            else:
+                st.warning(f"📸 画像 {file_name} が読み込めません。ファイル名と場所を確認してください。")
 
-    ### 2️⃣ SSHボタンを押して「承認」する
-    一覧にある `auto-post-server` の右側にある **「SSH」** をクリックします。
-    
-    しばらくすると**「承認（Authorize）」**を求める画面が表示されます。
-    「ブラウザでのSSHによるVMへの接続を許可します」という内容ですので、迷わず **「承認（Authorize）」** ボタンを押してください。
-    """)
+    show_img("image_980436.jpg", "この『SSH』をクリックしてください")
 
-    # 画像：承認画面（image_980437.jpg）の表示設定
-    current_dir = os.path.dirname(__file__)
-    img_auth = os.path.join(current_dir, "image_980437.jpg")
-    if os.path.exists(img_auth):
-        st.image(img_auth, caption="この画面が出たら『承認』または『Authorize』をクリックしてください")
-
+    # 手順 3
+    st.markdown("### 3️⃣ 接続を「承認」する")
     st.markdown("""
-    ### 3️⃣ 魔法の言葉（コマンド）を貼り付ける
-    黒い画面が立ち上がったら、接続されるまで1分ほど待ちます。
-    下の画像のように、文字が止まって末尾に **$** マークが出たら準備完了です。
+    クリック後、しばらく待つと「承認」を求める画面が出ることがあります。
+    **「承認（Authorize）」** ボタンを押して進めてください。
     """)
+    show_img("image_980437.jpg", "この画面が出たら『承認』または『Authorize』をクリック")
 
-    # 画像：SSH実行画面（image_980438.jpg）の表示設定
-    img_ssh = os.path.join(current_dir, "image_980438.jpg")
-    if os.path.exists(img_ssh):
-        st.image(img_ssh, caption="この $ のあとにコマンドを貼り付けます")
-
-    st.success("👇 下の枠内のコードをコピーして、黒い画面に貼り付け（右クリック→貼り付け）、Enterキーを1回だけ押してください。")
+    # 手順 4
+    st.markdown("### 4️⃣ 魔法の言葉（コマンド）を貼り付ける")
+    st.markdown("""
+    黒い画面が立ち上がったら、1分ほど待ちます。文字が止まり、末尾に **$** マークが出てカーソルが点滅したら準備完了です。
+    
+    下の枠内のコードをコピーして、黒い画面に貼り付け（**右クリック → 貼り付け**）、**Enterキー**を1回押してください。
+    """)
+    show_img("image_980438.jpg", "この $ マークのあとに貼り付けてEnter！")
 
     # 実行コマンド
     REBOOT_COMMAND = "pkill -f main.py; nohup python3 main.py > system.log 2>&1 &"
@@ -226,9 +233,9 @@ with tab_trouble:
     
     st.markdown("""
     <div style="background-color: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; margin-top: 10px;">
-        <p style="margin-bottom: 5px; font-weight: bold;">💡 コピペした後は？</p>
+        <p style="margin-bottom: 5px; font-weight: bold;">✅ 操作が終わったら</p>
         <p style="font-size: 0.9rem; color: #475569; margin-bottom: 0;">
-            ・Enterを押して新しい行が出れば成功です。その後、黒い画面はバツボタンで閉じて構いません。<br>
+            ・Enterを押して新しい行が出れば成功です。黒い画面はバツボタンで閉じてOK。<br>
             ・<b>5〜10分後</b>にスプレッドシートのH列に「完了」が出始めるか確認してください。
         </p>
     </div>
@@ -251,6 +258,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
