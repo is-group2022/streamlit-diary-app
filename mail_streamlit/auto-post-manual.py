@@ -158,6 +158,8 @@ with tab_operation:
     </div>
     """, unsafe_allow_html=True)
 
+import os
+
 # --- 3. トラブル対応 ---
 with tab_trouble:
     st.header("🆘 困った時の解決ガイド")
@@ -197,12 +199,19 @@ with tab_trouble:
     ログイン後、一覧にある `auto-post-server` の右側にある **「SSH」** という青い文字をクリックしてください。
     """)
 
-    # --- 画像表示（エラー対策付き） ---
-    try:
-        # ファイル名が .jpg であることを確認してください
-        st.image("image_980436.jpg", caption="Google Cloud 画面：この『SSH』をクリック")
-    except:
-        st.warning("📸 (画像ファイル image_980436.jpg が読み込めませんでした) 画面右端の『接続』列にある青い【SSH】という文字を探してください。")
+    # --- 画像表示（パスの修正版） ---
+    # 実行ファイルの場所を基準に画像を探す
+    current_dir = os.path.dirname(__file__)
+    img_path = os.path.join(current_dir, "image_980436.jpg")
+
+    if os.path.exists(img_path):
+        st.image(img_path, caption="Google Cloud 画面：この『SSH』をクリック")
+    else:
+        # 万が一パスが通らない場合の予備
+        try:
+            st.image("mail_streamlit/image_980436.jpg", caption="Google Cloud 画面：この『SSH』をクリック")
+        except:
+            st.warning("📸 画像が見つかりませんでした。画面右端の『接続』列にある青い【SSH】という文字を探してください。")
 
     st.markdown(f"""
     ### 3️⃣ 魔法の言葉（コマンド）を貼り付ける
@@ -245,6 +254,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
