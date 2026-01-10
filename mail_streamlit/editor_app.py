@@ -9,6 +9,9 @@ from google.cloud import storage
 # --- 1. 定数・設定 ---
 try:
     SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"]
+    # Tab2移動機能用の追加ID
+    ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
+    
     GCS_BUCKET_NAME = "auto-poster-images"
     ACCOUNT_OPTIONS = ["A", "B", "C", "D"]
     SHEET_MAP = {opt: f"投稿{opt}アカウント" for opt in ACCOUNT_OPTIONS}
@@ -51,28 +54,28 @@ def get_clients():
 
 GC, GCS_CLIENT = get_clients()
 SPRS = GC.open_by_key(SHEET_ID)
+# Tab2移動機能用のステータスシート
+STATUS_SPRS = GC.open_by_key(ACCOUNT_STATUS_SHEET_ID)
 
 # --- 4. UI構築 ---
 st.set_page_config(layout="wide", page_title="写メ日記投稿データ管理")
 
-# カスタムCSS (重なりを修正)
+# カスタムCSS
 st.markdown("""
     <style>
     [data-testid="stHeader"] { display: none; }
     
-    /* タイトルの余白設定：重ならないように調整 */
     .stApp h1 { 
         padding-top: 20px !important; 
         padding-bottom: 10px !important; 
         margin-bottom: 0px !important; 
     }
     
-    /* 選択パネルのスタイル */
     .filter-panel {
         background-color: #f1f3f6;
         padding: 15px 20px;
         border-radius: 10px;
-        margin-top: 10px !important; /* タイトルとの距離を少し確保 */
+        margin-top: 10px !important; 
         margin-bottom: 20px;
         border: 1px solid #d1d5db;
     }
@@ -88,125 +91,220 @@ st.markdown("""
 def main():
     st.title("📸 写メ日記投稿データ管理")
 
-    # --- メイン画面上部の選択パネル ---
-    st.markdown('<div class="filter-panel">', unsafe_allow_html=True)
-    c1, c2, c3, c4 = st.columns([1, 1, 1, 2])
-    
-    with c1:
-        sel_acc = st.selectbox("👤 アカウント", ACCOUNT_OPTIONS, index=0)
-    
-    ws = SPRS.worksheet(SHEET_MAP[sel_acc])
-    data = ws.get_all_values()
-    
-    if len(data) <= 1:
-        st.warning("有効なデータがありません。")
-        st.markdown('</div>', unsafe_allow_html=True)
-        return
+    # タブ構成の定義
+    tab1, tab2 = st.tabs(["📝 日記編集・画像管理", "📊 店舗アカウント状況"])
+
+    with tab1:
+        # --- メイン画面上部の選択パネル ---
+        st.markdown('<div class="filter-panel">', unsafe_allow_html=True)
+        c1, c2, c3, c4 = st.columns([1, 1, 1, 2])
         
-    full_df = pd.DataFrame(data[1:])
-    full_df = full_df.iloc[:, :7]
-    while full_df.shape[1] < 7: full_df[full_df.shape[1]] = ""
-    full_df.columns = DF_COLS
-    full_df['__row__'] = range(2, len(data) + 1)
-
-    # --- 空白行の除外処理 ---
-    full_df = full_df[full_df["店名"].str.strip() != ""]
-    full_df = full_df[full_df["女の子の名前"].str.strip() != ""]
-
-    with c2:
-        areas = sorted(full_df["エリア"].unique())
-        sel_area = st.selectbox("📍 エリア", ["未選択"] + areas)
-    
-    sel_store = "未選択"
-    with c3:
-        if sel_area != "未選択":
-            stores = sorted(full_df[full_df["エリア"] == sel_area]["店名"].unique())
-            sel_store = st.selectbox("🏢 店舗", ["未選択"] + stores)
+        with c1:
+            sel_acc = st.selectbox("👤 アカウント", ACCOUNT_OPTIONS, index=0)
+        
+        ws = SPRS.worksheet(SHEET_MAP[sel_acc])
+        data = ws.get_all_values()
+        
+        if len(data) <= 1:
+            st.warning("有効なデータがありません。")
+            st.markdown('</div>', unsafe_allow_html=True)
         else:
-            st.selectbox("🏢 店舗", ["エリアを選択"], disabled=True)
+            full_df = pd.DataFrame(data[1:])
+            full_df = full_df.iloc[:, :7]
+            while full_df.shape[1] < 7: full_df[full_df.shape[1]] = ""
+            full_df.columns = DF_COLS
+            full_df['__row__'] = range(2, len(data) + 1)
+
+            # 空白行の除外
+            full_df = full_df[full_df["店名"].str.strip() != ""]
+            full_df = full_df[full_df["女の子の名前"].str.strip() != ""]
+
+            with c2:
+                areas = sorted(full_df["エリア"].unique())
+                sel_area = st.selectbox("📍 エリア", ["未選択"] + areas)
             
-    with c4:
-        search_query = st.text_input("🔍 名前・内容で検索", placeholder="キーワード入力...")
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    if sel_store == "未選択":
-        st.info("💡 パネルからエリアと店舗を選択してください。")
-        return
-
-    # --- フィルタリング ---
-    target_df = full_df[(full_df["エリア"] == sel_area) & (full_df["店名"] == sel_store)]
-    
-    if search_query:
-        q = normalize_text(search_query)
-        target_df = target_df[
-            target_df["女の子の名前"].apply(normalize_text).str.contains(q) |
-            target_df["タイトル"].apply(normalize_text).str.contains(q) |
-            target_df["本文"].apply(normalize_text).str.contains(q) |
-            target_df["投稿時間"].str.contains(q)
-        ]
-
-    st.subheader(f"📊 {sel_store} ({len(target_df)} / {len(full_df[(full_df['エリア'] == sel_area) & (full_df['店名'] == sel_store)])} 件)")
-
-    # GCS画像取得
-    bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
-    blobs = list(bucket.list_blobs(prefix=f"{sel_area}/"))
-    store_norm = normalize_text(sel_store)
-    store_images = [b.name for b in blobs if normalize_text(b.name.split('/')[1]) in [store_norm, normalize_text(f"デリじゃ{sel_store}")]]
-
-    st.write("---")
-
-    for idx, row in target_df.iterrows():
-        base_time = parse_to_datetime(row["投稿時間"])
-        name_norm = normalize_text(row["女の子の名前"])
-        
-        # 名前の一致判定を「部分一致」に強化
-        # シート上の名前がファイル名に含まれているか、またはその逆
-        matched_files = [
-            img for img in store_images 
-            if (name_norm in normalize_text(img.split('/')[-1]) or normalize_text(img.split('/')[-1]) in name_norm)
-            and is_time_match(base_time, img.split('/')[-1])
-        ]
-
-        with st.container():
-            st.markdown(f"#### 👤 {row['女の子の名前']} / ⏰ {row['投稿時間']}")
-            col_txt, col_img, col_ops = st.columns([2.5, 1, 1])
-
-            with col_txt:
-                new_title = st.text_input("タイトル", row["タイトル"], key=f"ti_{idx}")
-                new_body = st.text_area("本文", row["本文"], key=f"bo_{idx}", height=400)
-                
-                if st.button("💾 内容を保存", key=f"sv_{idx}", type="primary"):
-                    ws.update_cell(row['__row__'], 6, new_title)
-                    ws.update_cell(row['__row__'], 7, new_body)
-                    st.toast(f"{row['女の子の名前']} の日記を保存しました！")
-
-            with col_img:
-                if matched_files:
-                    for m_path in matched_files:
-                        st.image(get_cached_url(m_path), use_container_width=True)
-                        with st.popover("🗑️ 削除"):
-                            st.write("本当に削除しますか？")
-                            if st.button("実行する", key=f"del_{idx}_{m_path}"):
-                                bucket.blob(m_path).delete()
-                                st.cache_data.clear()
-                                st.rerun()
+            sel_store = "未選択"
+            with c3:
+                if sel_area != "未選択":
+                    stores = sorted(full_df[full_df["エリア"] == sel_area]["店名"].unique())
+                    sel_store = st.selectbox("🏢 店舗", ["未選択"] + stores)
                 else:
-                    st.error("🚨 画像なし")
+                    st.selectbox("🏢 店舗", ["エリアを選択"], disabled=True)
+                    
+            with c4:
+                search_query = st.text_input("🔍 名前・内容で検索", placeholder="キーワード入力...")
 
-            with col_ops:
-                up_file = st.file_uploader("📥 画像追加", type=["jpg","png","jpeg"], key=f"up_{idx}")
-                if up_file:
-                    if st.button("🚀 アップ", key=f"u_btn_{idx}"):
-                        ext = up_file.name.split('.')[-1]
-                        folder_name = f"デリじゃ {sel_store}" if row["媒体"] == "デリじゃ" else sel_store
-                        new_blob_name = f"{sel_area}/{folder_name}/{row['投稿時間']}_{row['女の子の名前']}.{ext}"
-                        blob = bucket.blob(new_blob_name)
-                        blob.upload_from_string(up_file.getvalue(), content_type=up_file.type)
-                        st.cache_data.clear()
-                        st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            if sel_store == "未選択":
+                st.info("💡 パネルからエリアと店舗を選択してください。")
+            else:
+                # --- フィルタリング ---
+                target_df = full_df[(full_df["エリア"] == sel_area) & (full_df["店名"] == sel_store)]
+                
+                if search_query:
+                    q = normalize_text(search_query)
+                    target_df = target_df[
+                        target_df["女の子の名前"].apply(normalize_text).str.contains(q) |
+                        target_df["タイトル"].apply(normalize_text).str.contains(q) |
+                        target_df["本文"].apply(normalize_text).str.contains(q) |
+                        target_df["投稿時間"].str.contains(q)
+                    ]
+
+                st.subheader(f"📊 {sel_store} ({len(target_df)} / {len(full_df[(full_df['エリア'] == sel_area) & (full_df['店名'] == sel_store)])} 件)")
+
+                bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
+                blobs = list(bucket.list_blobs(prefix=f"{sel_area}/"))
+                store_norm = normalize_text(sel_store)
+                store_images = [b.name for b in blobs if normalize_text(b.name.split('/')[1]) in [store_norm, normalize_text(f"デリじゃ{sel_store}")]]
+
+                st.write("---")
+
+                for idx, row in target_df.iterrows():
+                    base_time = parse_to_datetime(row["投稿時間"])
+                    name_norm = normalize_text(row["女の子の名前"])
+                    
+                    matched_files = [
+                        img for img in store_images 
+                        if (name_norm in normalize_text(img.split('/')[-1]) or normalize_text(img.split('/')[-1]) in name_norm)
+                        and is_time_match(base_time, img.split('/')[-1])
+                    ]
+
+                    with st.container():
+                        st.markdown(f"#### 👤 {row['女の子の名前']} / ⏰ {row['投稿時間']}")
+                        col_txt, col_img, col_ops = st.columns([2.5, 1, 1])
+
+                        with col_txt:
+                            new_title = st.text_input("タイトル", row["タイトル"], key=f"ti_{idx}")
+                            new_body = st.text_area("本文", row["本文"], key=f"bo_{idx}", height=400)
+                            if st.button("💾 内容を保存", key=f"sv_{idx}", type="primary"):
+                                ws.update_cell(row['__row__'], 6, new_title)
+                                ws.update_cell(row['__row__'], 7, new_body)
+                                st.toast(f"{row['女の子の名前']} の日記を保存しました！")
+
+                        with col_img:
+                            if matched_files:
+                                for m_path in matched_files:
+                                    st.image(get_cached_url(m_path), use_container_width=True)
+                                    with st.popover("🗑️ 削除"):
+                                        if st.button("実行する", key=f"del_{idx}_{m_path}"):
+                                            bucket.blob(m_path).delete()
+                                            st.cache_data.clear()
+                                            st.rerun()
+                            else:
+                                st.error("🚨 画像なし")
+
+                        with col_ops:
+                            up_file = st.file_uploader("📥 画像追加", type=["jpg","png","jpeg"], key=f"up_{idx}")
+                            if up_file:
+                                if st.button("🚀 アップ", key=f"u_btn_{idx}"):
+                                    ext = up_file.name.split('.')[-1]
+                                    folder_name = f"デリじゃ {sel_store}" if row["媒体"] == "デリじゃ" else sel_store
+                                    new_blob_name = f"{sel_area}/{folder_name}/{row['投稿時間']}_{row['女の子の名前']}.{ext}"
+                                    blob = bucket.blob(new_blob_name)
+                                    blob.upload_from_string(up_file.getvalue(), content_type=up_file.type)
+                                    st.cache_data.clear()
+                                    st.rerun()
+                        
+                        st.markdown("<div class='diary-divider'></div>", unsafe_allow_html=True)
+
+    with tab2:
+        st.markdown("## 📊 店舗アカウント状況")
+        
+        # データの再集計
+        combined_data = []
+        acc_summary = {}; acc_counts = {}
+        try:
+            for opt in ACCOUNT_OPTIONS:
+                ws_acc = SPRS.worksheet(SHEET_MAP[opt])
+                rows = ws_acc.get_all_values()
+                if len(rows) > 1:
+                    for i, r in enumerate(rows[1:]):
+                        if any(str(c).strip() for c in r[:7]):
+                            combined_data.append([opt, i+2] + [r[j] if j<len(r) else "" for j in range(7)])
+                            a, s, m = str(r[0]).strip(), str(r[1]).strip(), str(r[2]).strip()
+                            acc_counts[opt] = acc_counts.get(opt, 0) + 1
+                            if opt not in acc_summary: acc_summary[opt] = {}
+                            if a not in acc_summary[opt]: acc_summary[opt][a] = set()
+                            acc_summary[opt][a].add(f"{m} : {s}")
+        except: pass
+
+        if combined_data:
+            for acc_code in ACCOUNT_OPTIONS:
+                count = acc_counts.get(acc_code, 0)
+                st.markdown(f"### 👤 投稿{acc_code}アカウント `{count} 件`")
+                if acc_code in acc_summary:
+                    areas = acc_summary[acc_code]
+                    area_cols = st.columns(len(areas) if len(areas) > 0 else 1)
+                    for idx, (area_name, shops) in enumerate(areas.items()):
+                        with area_cols[idx]:
+                            st.info(f"📍 **{area_name}**")
+                            for shop in sorted(shops):
+                                st.checkbox(f"{shop}", key=f"move_{acc_code}_{area_name}_{shop}")
             
-            st.markdown("<div class='diary-divider'></div>", unsafe_allow_html=True)
+            selected_shops = [
+                {"acc": k.split('_')[1], "area": k.split('_')[2], "shop": k.split('_')[3].split(" : ")[-1]}
+                for k, v in st.session_state.items() if k.startswith("move_") and v
+            ]
+
+            if selected_shops:
+                if st.button("🚀 選択した店舗を【落ち店】へ移動する", type="primary", use_container_width=True):
+                    st.session_state.confirm_move = True
+
+                if st.session_state.get("confirm_move"):
+                    st.error("❗ 本当に実行しますか？")
+                    col_yes, col_no = st.columns(2)
+                    
+                    if col_no.button("❌ キャンセル", use_container_width=True):
+                        st.session_state.confirm_move = False
+                        st.rerun()
+
+                    if col_yes.button("⭕ はい、実行します", type="primary", use_container_width=True):
+                        import time
+                        try:
+                            # 移動先：使用可能日記文シート
+                            sh_stock = GC.open_by_key("1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM")
+                            ws_stock = sh_stock.sheet1
+                            
+                            for item in selected_shops:
+                                # ① 日記移動
+                                ws_main = SPRS.worksheet(SHEET_MAP[item['acc']])
+                                main_data = ws_main.get_all_values()
+                                for row_idx in range(len(main_data), 0, -1):
+                                    row = main_data[row_idx-1]
+                                    if len(row) >= 2 and row[1] == item['shop']:
+                                        ws_stock.append_row([None, None, row[5], row[6]], value_input_option='USER_ENTERED')
+                                        time.sleep(1.2)
+                                        ws_main.delete_rows(row_idx)
+
+                                # ② リンク削除 (ステータスシート)
+                                ws_link = STATUS_SPRS.worksheet(SHEET_MAP[item['acc']])
+                                link_data = ws_link.get_all_values()
+                                for row_idx in range(len(link_data), 0, -1):
+                                    if len(link_data[row_idx-1]) >= 2 and link_data[row_idx-1][1] == item['shop']:
+                                        ws_link.delete_rows(row_idx)
+                                        break
+                                
+                                # ③ GCS画像移動
+                                bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
+                                found_blobs = []
+                                for pfx in [f"{item['area']}/{item['shop']}/", f"{item['area']}/デリじゃ {item['shop']}/"]:
+                                    blobs = list(bucket.list_blobs(prefix=pfx))
+                                    if blobs:
+                                        found_blobs = blobs
+                                        break
+                                for b in found_blobs:
+                                    file_name = b.name.split('/')[-1]
+                                    new_name = f"【落ち店】/{item['shop']}/{file_name}"
+                                    bucket.copy_blob(b, bucket, new_name)
+                                    b.delete()
+                            
+                            st.success("🎉 移動完了！")
+                            st.session_state.confirm_move = False
+                            st.cache_data.clear() 
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"エラー: {e}")
 
 if __name__ == "__main__":
     main()
