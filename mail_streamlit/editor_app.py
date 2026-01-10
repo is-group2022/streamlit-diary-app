@@ -60,44 +60,49 @@ STATUS_SPRS = GC.open_by_key(ACCOUNT_STATUS_SHEET_ID)
 # --- 4. UI構築 ---
 st.set_page_config(layout="wide", page_title="写メ日記投稿データ管理")
 
-# カスタムCSS (余白をさらに詰めました)
+# カスタムCSS (タイトルの高さを微調整)
 st.markdown("""
     <style>
     [data-testid="stHeader"] { display: none; }
     
-    /* アプリ全体の最上部余白を削除 */
+    /* アプリ全体の最上部余白 */
     .block-container {
-        padding-top: 1rem !important;
+        padding-top: 1.5rem !important;
         padding-bottom: 0rem !important;
     }
 
-    /* タイトル位置を限界まで上に */
+    /* タイトルの位置：消えない程度に引き上げ */
     .stApp h1 { 
         padding-top: 0px !important; 
-        margin-top: -40px !important; /* マイナス指定でさらに上へ */
-        padding-bottom: 5px !important; 
+        margin-top: -15px !important; /* 消えかかっていたので数値を緩めました */
+        padding-bottom: 10px !important; 
         margin-bottom: 0px !important;
-        font-size: 1.8rem !important; /* 少しサイズを整えると綺麗に見えます */
+        font-size: 1.8rem !important;
     }
     
-    /* 選択パネルもタイトルのすぐ下に配置 */
+    /* 選択パネルのスタイル */
     .filter-panel {
         background-color: #f1f3f6;
         padding: 12px 20px;
         border-radius: 10px;
-        margin-top: 0px !important; 
+        margin-top: 5px !important; 
         margin-bottom: 15px;
         border: 1px solid #d1d5db;
     }
+    
     .stTextArea textarea { font-size: 15px; line-height: 1.6; }
     .diary-divider {
         border-bottom: 2px solid #eee;
         padding-bottom: 30px;
         margin-bottom: 30px;
     }
+    
+    /* タブの高さ調整（もしタブを使っている場合） */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
     </style>
 """, unsafe_allow_html=True)
-
 def main():
     st.title("📸 写メ日記投稿データ管理")
 
@@ -318,4 +323,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
