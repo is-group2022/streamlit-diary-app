@@ -29,6 +29,14 @@ except Exception as e:
 # --- モダンUIデザイン（文字を大きく、PCで見やすく） ---
 st.markdown("""
     <style>
+    /* 💡 上部の余白を大幅に削減 */
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 0rem !important;
+    }
+    /* デフォルトのヘッダーを非表示 */
+    header {visibility: hidden;}
+    
     html, body, [class*="css"] { font-size: 1.15rem; }
     .stTabs [data-baseweb="tab-list"] { gap: 15px; }
     .stTabs [data-baseweb="tab"] {
@@ -331,6 +339,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
