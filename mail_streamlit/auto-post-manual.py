@@ -64,12 +64,14 @@ tab_manual, tab_operation, tab_trouble, tab_billing = st.tabs([
     "📊 リアルタイム料金"
 ])
 
-# --- 1. システムの仕組み (UTC→JST補正・最新特定版) ---
+# --- 1. システムの仕組み (基準時刻最接近スキャン版) ---
 with tab_manual:
     st.header("📊 システム稼働状況 ＆ インフラ解説")
     
     JST = timezone(timedelta(hours=+9), 'JST')
     now_jst = datetime.now(JST)
+    # 💡 基準となる「確認時刻」を秒単位で計算
+    base_seconds = now_jst.hour * 3600 + now_jst.minute * 60 + now_jst.second
     
     st.markdown("#### 🔄 リアルタイム投稿確認")
     if st.button("最新の投稿状況をチェックする"):
@@ -78,63 +80,56 @@ with tab_manual:
         
         status_summary = []
 
-        with st.spinner('記録時間を日本時間に補正してスキャン中...'):
+        with st.spinner(f'確認時刻 {now_jst.strftime("%H:%M:%S")} に最も近い記録を探索中...'):
             try:
                 sh_status = GC.open_by_key(spreadsheet_id)
                 
                 for name in target_sheets:
                     try:
                         ws = sh_status.worksheet(name)
+                        # データ範囲を取得
                         raw_data = ws.get('A1:J1500') 
                         
-                        latest_entry = None
-                        latest_total_seconds = -float('inf')
+                        best_row = None
+                        min_diff = float('inf')
 
                         if raw_data:
                             for i, row in enumerate(raw_data):
                                 if len(row) >= 8:
                                     status_cell = str(row[7]).strip()
+                                    # 「完了: 03:05:10」などの時刻を抽出
                                     match = re.search(r'(\d{1,2}:\d{2}:\d{2})', status_cell)
                                     
                                     if "完了" in status_cell and match:
                                         time_str = match.group(1)
                                         h, m, s = map(int, time_str.split(':'))
+                                        cell_seconds = h * 3600 + m * 60 + s
                                         
-                                        # 💡 【重要】UTC時間を日本時間に変換
-                                        # セルの時間に9時間を足す（24時間を超えたら0に戻す）
-                                        jst_h = (h + 9) % 24
+                                        # 💡 基準時刻(今)との「距離」を計算
+                                        # 0時を跨ぐ差(23:59と00:01)も考慮した絶対距離
+                                        diff = abs(base_seconds - cell_seconds)
+                                        if diff > 43200: # 12時間以上の差は日付跨ぎとして補正
+                                            diff = 86400 - diff
                                         
-                                        # 比較用の通算秒（日本時間ベース）
-                                        total_seconds = jst_h * 3600 + m * 60 + s
-                                        
-                                        # 日付跨ぎ補正：
-                                        # 今（深夜3時）より、データ（例えば昨日の夜22時）が12時間以上離れているなら過去と判定
-                                        now_total_seconds = now_jst.hour * 3600 + now_jst.minute * 60 + now_jst.second
-                                        if total_seconds > now_total_seconds + 43200:
-                                            total_seconds -= 86400
-
-                                        if total_seconds > latest_total_seconds:
-                                            latest_total_seconds = total_seconds
-                                            # 表示用には元の文字列を使うか、計算後の日本時間を使う
-                                            # ここでは分かりやすく「日本時間：XX:XX」として表示
-                                            display_time = f"完了: {jst_h:02}:{m:02}:{s:02} (JST)"
-                                            
-                                            latest_entry = {
+                                        # 最も距離が短い（今に近い）ものを採用
+                                        if diff < min_diff:
+                                            min_diff = diff
+                                            best_row = {
                                                 "シート": name,
-                                                "状況": display_time,
+                                                "状況": status_cell,
                                                 "店舗": row[1] if len(row) > 1 else "不明",
-                                                "行": i + 1
+                                                "確認時点との差": f"{int(diff)}秒"
                                             }
                             
-                        if latest_entry:
-                            status_summary.append(latest_entry)
+                        if best_row:
+                            status_summary.append(best_row)
                         else:
-                            status_summary.append({"シート": name, "状況": "💤 投稿待ち", "店舗": "-", "行": "-"})
+                            status_summary.append({"シート": name, "状況": "💤 投稿待ち", "店舗": "-", "確認時点との差": "-"})
                         
-                    except Exception as e:
-                        status_summary.append({"シート": name, "状況": "⚠️ エラー", "店舗": "-", "行": "-"})
+                    except Exception:
+                        status_summary.append({"シート": name, "状況": "⚠️ 読込エラー", "店舗": "-", "確認時点との差": "-"})
 
-                st.success(f"✅ 日本時間同期完了（確認時刻: {now_jst.strftime('%H:%M:%S')}）")
+                st.success(f"✅ 同期完了（確認時刻: {now_jst.strftime('%H:%M:%S')}）")
                 st.table(pd.DataFrame(status_summary))
 
             except Exception as e:
@@ -304,6 +299,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
