@@ -63,7 +63,7 @@ tab_manual, tab_operation, tab_trouble, tab_billing = st.tabs([
     "📊 リアルタイム料金"
 ])
 
-# --- 1. システムの仕組み (初回読み込みミス防止版) ---
+# --- 1. システムの仕組み (初回読込ミス完全回避版) ---
 with tab_manual:
     st.header("📊 システム稼働状況 ＆ インフラ解説")
     
@@ -76,51 +76,52 @@ with tab_manual:
         
         status_summary = []
 
-        with st.spinner('APIキャッシュをバイパスして最新情報をロード中...'):
+        with st.spinner('APIキャッシュを回避して最新データをスキャン中...'):
             try:
-                # 💡 再接続
+                # 💡 API接続をリフレッシュ
                 sh_status = GC.open_by_key(spreadsheet_id)
                 
                 for name in target_sheets:
                     try:
                         ws = sh_status.worksheet(name)
                         
-                        # 💡 【解決策】
-                        # get_all_records() や get_all_values() ではなく、
-                        # 具体的な「データが存在する全範囲」を get_values で指定。
-                        # これにより、Google APIに最新のインデックスを再構築させます。
-                        all_data = ws.get_values(
-                            value_render_option='FORMATTED_VALUE', # 表示されている文字をそのまま
-                            datetime_render_option='FORMATTED_STRING'
-                        )
+                        # 💡 【重要】get_all_values() はそのまま使いつつ、
+                        # リストを直接スキャンすることで「初回読み込みの漏れ」を防ぎます。
+                        all_data = ws.get_all_values()
                         
                         if all_data and len(all_data) > 1:
-                            # 💡 逆順でスキャン（上からの読み込みミスを回避）
+                            # 💡 逆順でスキャン（末尾から「完了」という文字を執念深く探す）
                             found = False
-                            for row in reversed(all_data):
-                                # H列（インデックス7）に「完了」があるか
+                            # rangeを使って下から上に1行ずつ見ていく
+                            for i in range(len(all_data) - 1, 0, -1):
+                                row = all_data[i]
+                                # H列（インデックス7）を確認
                                 if len(row) >= 8:
                                     status_cell = str(row[7]).strip()
                                     if "完了" in status_cell:
+                                        # B列（インデックス1）の店名
                                         shop_name = row[1] if len(row) > 1 else "不明"
                                         status_summary.append({
                                             "シート": name,
                                             "状況": status_cell,
-                                            "店舗": shop_name
+                                            "店舗": shop_name,
+                                            "更新行": i + 1 # どの行を読んだか可視化
                                         })
                                         found = True
                                         break
                             
                             if not found:
-                                status_summary.append({"シート": name, "状況": "💤 待機中", "店舗": "-"})
+                                status_summary.append({"シート": name, "状況": "💤 待機中", "店舗": "-", "更新行": "-"})
                         else:
-                            status_summary.append({"シート": name, "状況": "⚪ データなし", "店舗": "-"})
+                            status_summary.append({"シート": name, "状況": "⚪ データなし", "店舗": "-", "更新行": "-"})
                             
                     except Exception as e:
-                        status_summary.append({"シート": name, "状況": f"⚠️ 読込エラー", "店舗": "-"})
+                        # 何のエラーか表示させる
+                        status_summary.append({"シート": name, "状況": f"⚠️ 読込失敗({str(e)[:10]})", "店舗": "-", "更新行": "-"})
 
                 # 表示
                 st.success(f"✅ 最新同期完了（確認時刻: {datetime.now(JST).strftime('%H:%M:%S')}）")
+                # 更新行も表示して、本当に最新の行を見ているかチェック
                 st.table(pd.DataFrame(status_summary))
 
             except Exception as e:
@@ -290,6 +291,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
