@@ -78,7 +78,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def main():
-    st.title("📸 写メ日記エディタ Pro")
+    st.title("📸 写メ日記投稿管理")
 
     # --- メイン画面上部の選択パネル (常に表示) ---
     st.markdown('<div class="filter-panel">', unsafe_allow_html=True)
@@ -183,3 +183,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
