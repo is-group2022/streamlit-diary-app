@@ -90,7 +90,7 @@ def get_cached_url(blob_name):
     return f"https://storage.googleapis.com/{GCS_BUCKET_NAME}/{safe_path}"
     
 # --- 3. UI 構築 ---
-st.set_page_config(layout="wide", page_title="写メ日記投稿管理")
+st.set_page_config(layout="wide", page_title="写メ日記登録")
 
 st.markdown("""
     <style>
@@ -681,6 +681,7 @@ with tab6:
 
     # 実行
     ochimise_action_fragment(folders, show_all)
+
 
 
 
