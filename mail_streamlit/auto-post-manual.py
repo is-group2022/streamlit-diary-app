@@ -219,7 +219,7 @@ with tab_trouble:
     show_img("image_980437.jpg", "この画面が出たら『承認』または『Authorize』をクリック")
 
     # 手順 4
-    st.markdown("### 4️⃣ 魔法の言葉（コマンド）を貼り付ける")
+    st.markdown("### 4️⃣ コマンドを貼り付ける")
     st.markdown("""
     黒い画面が立ち上がったら、1分ほど待ちます。文字が止まり、末尾に **$** マークが出てカーソルが点滅したら準備完了です。
     
@@ -258,6 +258,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
