@@ -53,22 +53,25 @@ GC, GCS_CLIENT = get_clients()
 SPRS = GC.open_by_key(SHEET_ID)
 
 # --- 4. UI構築 ---
-st.set_page_config(layout="wide", page_title="写メ日記投稿管理")
+st.set_page_config(layout="wide", page_title="写メ日記エディタ")
 
-# カスタムCSS
+# カスタムCSS (余白の徹底排除)
 st.markdown("""
     <style>
     [data-testid="stHeader"] { display: none; }
-    /* 選択パネルのスタイル */
+    /* タイトル直後のマージンを消去 */
+    .stApp h1 { margin-bottom: -40px !important; padding-bottom: 0px !important; }
+    
+    /* 選択パネルのスタイルと余白調整 */
     .filter-panel {
         background-color: #f1f3f6;
-        padding: 20px;
+        padding: 15px 20px;
         border-radius: 10px;
-        margin-bottom: 25px;
+        margin-top: 0px !important;
+        margin-bottom: 20px;
         border: 1px solid #d1d5db;
     }
     .stTextArea textarea { font-size: 15px; line-height: 1.6; }
-    /* 区切り線 */
     .diary-divider {
         border-bottom: 2px solid #eee;
         padding-bottom: 30px;
@@ -80,19 +83,18 @@ st.markdown("""
 def main():
     st.title("📸 写メ日記投稿管理")
 
-    # --- メイン画面上部の選択パネル (常に表示) ---
+    # --- メイン画面上部の選択パネル ---
     st.markdown('<div class="filter-panel">', unsafe_allow_html=True)
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns([1, 1, 1, 2]) # 検索窓用にカラム追加
     
     with c1:
         sel_acc = st.selectbox("👤 アカウント", ACCOUNT_OPTIONS, index=0)
     
-    # 選択されたアカウントのデータを取得
     ws = SPRS.worksheet(SHEET_MAP[sel_acc])
     data = ws.get_all_values()
     
     if len(data) <= 1:
-        st.warning("このシートには有効なデータがありません。")
+        st.warning("有効なデータがありません。")
         st.markdown('</div>', unsafe_allow_html=True)
         return
         
@@ -112,19 +114,31 @@ def main():
             stores = sorted(full_df[full_df["エリア"] == sel_area]["店名"].unique())
             sel_store = st.selectbox("🏢 店舗", ["未選択"] + stores)
         else:
-            st.selectbox("🏢 店舗", ["エリアを選択してください"], disabled=True)
-    
+            st.selectbox("🏢 店舗", ["エリアを選択"], disabled=True)
+            
+    with c4:
+        # 名前やキーワードでの検索機能
+        search_query = st.text_input("🔍 名前・内容で検索", placeholder="女の子の名前やキーワード...")
+
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # 未選択時のガイド
     if sel_store == "未選択":
-        st.info("💡 上記のパネルから「エリア」と「店舗」を選択してください。")
+        st.info("💡 パネルからエリアと店舗を選択してください。")
         return
 
-    # --- 選択後のメインコンテンツ ---
+    # --- フィルタリング ---
     target_df = full_df[(full_df["エリア"] == sel_area) & (full_df["店名"] == sel_store)]
     
-    st.subheader(f"📊 {sel_store} (合計: {len(target_df)} 件)")
+    if search_query:
+        q = normalize_text(search_query)
+        target_df = target_df[
+            target_df["女の子の名前"].apply(normalize_text).str.contains(q) |
+            target_df["タイトル"].apply(normalize_text).str.contains(q) |
+            target_df["本文"].apply(normalize_text).str.contains(q) |
+            target_df["投稿時間"].str.contains(q)
+        ]
+
+    st.subheader(f"📊 {sel_store} ({len(target_df)} / {len(full_df[(full_df['エリア'] == sel_area) & (full_df['店名'] == sel_store)])} 件)")
 
     # GCS画像取得
     bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
@@ -145,13 +159,12 @@ def main():
 
             with col_txt:
                 new_title = st.text_input("タイトル", row["タイトル"], key=f"ti_{idx}")
-                # 本文をさらに大きく表示 (height=400)
                 new_body = st.text_area("本文", row["本文"], key=f"bo_{idx}", height=400)
                 
                 if st.button("💾 内容を保存", key=f"sv_{idx}", type="primary"):
                     ws.update_cell(row['__row__'], 6, new_title)
                     ws.update_cell(row['__row__'], 7, new_body)
-                    st.toast("保存しました！")
+                    st.toast(f"{row['女の子の名前']} の日記を保存しました！")
 
             with col_img:
                 if matched_files:
@@ -178,10 +191,7 @@ def main():
                         st.cache_data.clear()
                         st.rerun()
             
-            # 区切り用HTML (SyntaxErrorを修正)
             st.markdown("<div class='diary-divider'></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
-
-
