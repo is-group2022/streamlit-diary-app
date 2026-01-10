@@ -5,6 +5,7 @@ import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 from google.cloud import bigquery
+from datetime import datetime, time, timedelta, timezone
 
 # --- ページ設定 ---
 st.set_page_config(page_title="自動日記運用マニュアル", layout="wide")
@@ -66,12 +67,15 @@ tab_manual, tab_operation, tab_trouble, tab_billing = st.tabs([
 with tab_manual:
     st.header("📊 システム稼働状況 ＆ インフラ解説")
     
-    # 現在時刻の取得とメンテナンス判定
-    now = datetime.now()
-    current_time = now.time()
+    # --- 日本時間(JST)の設定 ---
+    JST = timezone(timedelta(hours=+9), 'JST')
+    now_jst = datetime.now(JST)
+    current_time = now_jst.time()
+    
+    # メンテナンス判定（06:00 - 11:00）
     is_off_hours = time(6, 0) <= current_time <= time(11, 0)
 
-    # 1. メンテナンス時間の表示（ボタンより上に出して注意を促す）
+    # 1. メンテナンス時間の表示
     if is_off_hours:
         st.warning(f"### ☕ 現在はシステムメンテナンス時間です (06:00〜11:00)")
         st.info("この時間は自動投稿が停止しています。11:01以降に再開されます。")
@@ -121,11 +125,11 @@ with tab_manual:
                     except:
                         status_summary.append({"シート": name, "状況": "⚠️ エラー", "店舗": "-", "稼働": False})
 
-                # --- 結果表示 ---
+                # --- 結果表示 (日本時間で表示) ---
                 if any_active:
-                    st.success(f"✅ システム稼働確認（最終確認: {datetime.now().strftime('%H:%M:%S')}）")
+                    st.success(f"✅ システム稼働確認（最終確認: {datetime.now(JST).strftime('%H:%M:%S')}）")
                 else:
-                    st.error("⚠️ 稼働状況が確認できません（本日の完了記録なし）")
+                    st.error(f"⚠️ 稼働状況が確認できません（最終確認: {datetime.now(JST).strftime('%H:%M:%S')}）")
                 
                 status_df = pd.DataFrame(status_summary)
                 st.table(status_df[["シート", "状況", "店舗"]])
@@ -137,6 +141,7 @@ with tab_manual:
         st.info("上のボタンを押すと、現在の投稿状況を読み込みます。")
 
     st.divider()
+    
     # --- インフラ解説セクション ---
     col1, col2 = st.columns(2)
     with col1:
@@ -301,4 +306,5 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
