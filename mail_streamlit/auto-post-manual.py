@@ -1,137 +1,137 @@
 import streamlit as st
+import pandas as pd
 
-# --- ページ基本設定 ---
-st.set_page_config(
-    page_title="AUTO-POST 完全マニュアル",
-    page_icon="🤖",
-    layout="wide", # 大きく表示するためにワイドモード
-    initial_sidebar_state="expanded"
-)
+# --- ページ設定 ---
+st.set_page_config(page_title="AUTO-POST DASHBOARD", layout="wide")
 
-# --- 全体共通のスタイル（文字を大きく、おしゃれに） ---
+# --- カスタムCSS（PC向け・高精細デザイン） ---
 st.markdown("""
     <style>
-    /* 全体の文字サイズをアップ */
+    /* 全体のフォントサイズ */
     html, body, [class*="css"] {
-        font-size: 1.2rem;
+        font-size: 1.15rem;
+        font-family: 'Inter', sans-serif;
     }
-    /* タイトルのデザイン */
-    .main-title {
-        font-size: 3.5rem !important;
-        font-weight: 800;
-        color: #1E1E1E;
-        margin-bottom: 0px;
+    /* ヘッダーデザイン */
+    .header-box {
+        background: linear-gradient(90deg, #1E1E2F 0%, #4E4E6A 100%);
+        padding: 40px;
+        border-radius: 20px;
+        color: white;
+        text-align: center;
+        margin-bottom: 30px;
+        box-shadow: 0 10px 20px rgba(0,0,0,0.2);
     }
-    /* カード型の装飾 */
-    .custom-card {
-        background-color: #ffffff;
-        padding: 25px;
-        border-radius: 15px;
-        border-left: 8px solid #FF4B4B;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    /* カードデザイン */
+    .card {
+        background-color: white;
+        padding: 30px;
+        border-radius: 20px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        border: 1px solid #E5E7EB;
         margin-bottom: 25px;
     }
-    .gcs-card { border-left-color: #4285F4; }
-    .gce-card { border-left-color: #34A853; }
+    .card h2 { color: #2563EB; border-bottom: 2px solid #F3F4F6; padding-bottom: 10px; }
+    .price-card {
+        background-color: #F8FAFC;
+        border-left: 10px solid #10B981;
+    }
+    /* タブの文字を大きく */
+    .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
+        font-size: 1.5rem;
+        font-weight: bold;
+        padding: 10px 20px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# --- ページ定義関数 ---
-
-def show_home():
-    st.markdown('<p class="main-title">🤖 システムの仕組み</p>', unsafe_allow_html=True)
-    st.write("このシステムがどのように動いているか、全体像を詳しく解説します。")
-    
-    
-
-    st.markdown("""
-    <div class="custom-card gce-card">
-        <h2>🚀 GCE (Google Compute Engine)</h2>
-        <p><strong>「クラウド上で動く専用のパソコン」</strong>です。</p>
-        <ul>
-            <li>あなたの代わりに24時間365日、ブラウザを開いて投稿操作を行います。</li>
-            <li>自宅のPCを閉じても、このサーバーがネットの中で動き続けます。</li>
-            <li>今回提供したプログラム（main.py）はこの中で眠らずに動いています。</li>
-        </ul>
-    </div>
-    
-    <div class="custom-card gcs-card">
-        <h2>☁️ GCS (Google Cloud Storage)</h2>
-        <p><strong>「ネット上の画像専用フォルダ」</strong>です。</p>
-        <ul>
-            <li>投稿に使う写真はここに保存します。</li>
-            <li><strong>重要：</strong>プログラムは「投稿時間」と「女の子の名前」をヒントに、このフォルダから自動で写真を探し出します。</li>
-        </ul>
+# --- タイトルセクション ---
+st.markdown("""
+    <div class="header-box">
+        <h1>🤖 自動日記投稿システム 管理・運用ポータル</h1>
+        <p>GCEサーバー稼働状況・運用マニュアル・料金管理</p>
     </div>
     """, unsafe_allow_html=True)
 
-def show_operation():
-    st.markdown('<p class="main-title">💡 日常の操作</p>', unsafe_allow_html=True)
-    
+# --- 上部ナビゲーション（タブ） ---
+tab_main, tab_op, tab_error, tab_cost = st.tabs([
+    "📂 システムの仕組み", 
+    "📝 日常の操作", 
+    "🆘 トラブル対応", 
+    "💰 料金・サーバー管理"
+])
+
+# --- 1. システムの仕組み ---
+with tab_main:
     col1, col2 = st.columns(2)
     with col1:
-        st.markdown("### ✅ 投稿したいとき")
-        st.info("""
-        1. スプレッドシートの **G列** に時間を入力（例：`1800`）
-        2. **H列**（ステータス）を **空欄** にする
-        3. 指定時間に画像がGCSにあるか確認
-        """)
+        st.markdown("""
+        <div class="card">
+            <h2>🚀 GCE (Compute Engine)</h2>
+            <p><strong>「24時間動く仮想パソコン」</strong>です。</p>
+            <ul>
+                <li>Googleのデータセンター内で、あなたのプログラムを実行し続けます。</li>
+                <li>ブラウザ(Chrome)を自動起動し、日記サイトへアクセスします。</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
     with col2:
-        st.markdown("### 🔄 再投稿したいとき")
-        st.success("""
-        1. すでに「完了」と書かれた **H列のセルを消す**
-        2. セルが空欄になると、システムが「未投稿」と判断して再送します
-        """)
+        st.markdown("""
+        <div class="card">
+            <h2>☁️ GCS (Cloud Storage)</h2>
+            <p><strong>「画像のオンライン倉庫」</strong>です。</p>
+            <ul>
+                <li>スプレッドシートの指示に従い、この倉庫から写真を取り出します。</li>
+                <li>ファイル名が間違っていると、写真は投稿されません。</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+# --- 2. 日常の操作 ---
+with tab_op:
+    st.markdown("""
+    <div class="card">
+        <h2>✅ 運用フロー</h2>
+        <ol>
+            <li><strong>スプレッドシートの編集</strong>: G列に時間(1200)、F列に名前を入力。</li>
+            <li><strong>ステータス解除</strong>: 再投稿時はH列を空欄にする。</li>
+            <li><strong>朝の自動処理</strong>: 06:00-10:00は全自動メンテナンス時間です。</li>
+        </ol>
+    </div>
+    """, unsafe_allow_html=True)
+
+# --- 3. トラブル対応 ---
+with tab_error:
+    st.error("🚨 異常を感じた場合は以下の項目を確認してください")
+    exp1 = st.expander("投稿がスキップされる", expanded=True)
+    exp1.write("H列に何か文字（完了や失敗、スペース）が入っていませんか？システムは「完全に空」のセルしか処理しません。")
+    
+    exp2 = st.expander("画像がアップロードされない")
+    exp2.write("GCSのバケット内に、[エリア/店舗名/時間_名前.jpg] の形式で画像があるか確認してください。")
+
+# --- 4. 料金・サーバー管理 ---
+with tab_cost:
+    st.markdown("## 💰 運用コストの見積り")
+    
+    # 料金シミュレーター（手入力やAPI連携の代わりに）
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        gce_cost = st.number_input("GCE 月額料金 (USD)", value=25.0)
+    with c2:
+        gcs_cost = st.number_input("GCS ストレージ料金 (USD)", value=5.0)
+    with c3:
+        exchange_rate = st.number_input("為替レート (JPY/USD)", value=150.0)
+    
+    total_jpy = (gce_cost + gcs_cost) * exchange_rate
+    
+    st.markdown(f"""
+    <div class="card price-card">
+        <h3>📊 今月の概算コスト</h3>
+        <h1 style='color: #10B981;'>¥ {total_jpy:,.0f} <small style='font-size: 1rem; color: gray;'>/ 月</small></h1>
+        <p>内訳: GCE(${gce_cost}) + GCS(${gcs_cost}) = Total(${gce_cost + gcs_cost})</p>
+    </div>
+    """, unsafe_allow_html=True)
 
     st.divider()
-    st.markdown("### ⚠️ スケジュール")
-    st.error("毎日 **06:00 〜 10:00** はメンテナンスのためシステムが自動停止し、H列がクリアされます。")
-
-def show_trouble():
-    st.markdown('<p class="main-title">⚠️ トラブル解決</p>', unsafe_allow_html=True)
-    
-    
-    
-    st.subheader("🚨 投稿がされない・失敗する場合")
-    
-    with st.expander("1. 名前が一致しているか確認", expanded=True):
-        st.write("スプレッドシートの「名前」と、投稿先サイトの「登録名」が完全に一致（空白の有無など）している必要があります。")
-        
-    with st.expander("2. GCSのファイル名を確認"):
-        st.write("画像ファイル名の先頭4桁が投稿時間（1200_...）になっており、かつ名前に女の子の名前が含まれているか確認してください。")
-
-    with st.expander("3. H列の空欄確認"):
-        st.write("H列に半角スペースなどが入っていると反応しません。一度デリートキーで完全に消してください。")
-
-def show_admin():
-    st.markdown('<p class="main-title">🛠 管理者用コマンド</p>', unsafe_allow_html=True)
-    st.write("サーバー（GCE）の動作が止まった場合に、エンジニアが使用するコマンド集です。")
-    
-    st.subheader("再起動フロー")
-    st.code("""
-# 1. 実行中のプログラムを強制終了
-pkill -f main.py
-
-# 2. プログラムをバックグラウンドで再開
-nohup python3 main.py > system.log 2>&1 &
-    """, language="bash")
-    
-    st.subheader("ログの確認")
-    st.code("tail -f system.log", language="bash")
-
-# --- ルーティング（ページ切り替え） ---
-
-# ページの名前とアイコン、実行する関数の紐付け
-pages = {
-    "全体図とGCE解説": show_home,
-    "日常の操作方法": show_operation,
-    "トラブル対応": show_trouble,
-    "管理者コマンド": show_admin
-}
-
-# サイドバーでページを選択
-st.sidebar.title("📖 運用ナビ")
-selection = st.sidebar.radio("メニュー", list(pages.keys()))
-
-# 選択されたページ関数を実行
-pages[selection]()
+    st.subheader("🛠 エンジニア用復旧コマンド")
+    st.code("pkill -f main.py && nohup python3 main.py > system.log 2>&1 &", language="bash")
