@@ -63,7 +63,7 @@ tab_manual, tab_operation, tab_trouble, tab_billing = st.tabs([
     "📊 リアルタイム料金"
 ])
 
-# --- 1. システムの仕組み (キャッシュ強制破棄版) ---
+# --- 1. システムの仕組み (初回読み込みミス防止版) ---
 with tab_manual:
     st.header("📊 システム稼働状況 ＆ インフラ解説")
     
@@ -76,52 +76,52 @@ with tab_manual:
         
         status_summary = []
 
-        with st.spinner('サーバーのキャッシュを捨てて最新情報を取得中...'):
+        with st.spinner('APIキャッシュをバイパスして最新情報をロード中...'):
             try:
-                # 💡 対策1: 接続自体をここで作り直してリフレッシュ
+                # 💡 再接続
                 sh_status = GC.open_by_key(spreadsheet_id)
                 
                 for name in target_sheets:
                     try:
                         ws = sh_status.worksheet(name)
                         
-                        # 💡 対策2: 全データ(get_all_values)を取得。
-                        # これが一番「生」のデータに近い状態を拾えます。
-                        all_data = ws.get_all_values()
+                        # 💡 【解決策】
+                        # get_all_records() や get_all_values() ではなく、
+                        # 具体的な「データが存在する全範囲」を get_values で指定。
+                        # これにより、Google APIに最新のインデックスを再構築させます。
+                        all_data = ws.get_values(
+                            value_render_option='FORMATTED_VALUE', # 表示されている文字をそのまま
+                            datetime_render_option='FORMATTED_STRING'
+                        )
                         
-                        if len(all_data) > 1:
-                            df = pd.DataFrame(all_data[1:], columns=all_data[0])
+                        if all_data and len(all_data) > 1:
+                            # 💡 逆順でスキャン（上からの読み込みミスを回避）
+                            found = False
+                            for row in reversed(all_data):
+                                # H列（インデックス7）に「完了」があるか
+                                if len(row) >= 8:
+                                    status_cell = str(row[7]).strip()
+                                    if "完了" in status_cell:
+                                        shop_name = row[1] if len(row) > 1 else "不明"
+                                        status_summary.append({
+                                            "シート": name,
+                                            "状況": status_cell,
+                                            "店舗": shop_name
+                                        })
+                                        found = True
+                                        break
                             
-                            # H列(投稿ステータス)に「完了」が含まれる行だけに絞り込む
-                            # (列名がズレている可能性も考慮してインデックスでも指定)
-                            status_col = df.columns[7] if len(df.columns) >= 8 else '投稿ステータス'
-                            
-                            df_done = df[df[status_col].str.contains("完了", na=False)].copy()
-                            
-                            if not df_done.empty:
-                                # 💡 対策3: 確実に「一番下の行」を最新としてピックアップ
-                                last_row = df_done.tail(1).iloc[0]
-                                last_val = last_row[status_col]
-                                shop_name = last_row.get('店名', '不明')
-                                
-                                status_summary.append({
-                                    "シート": name,
-                                    "状況": last_val,
-                                    "店舗": shop_name
-                                })
-                            else:
+                            if not found:
                                 status_summary.append({"シート": name, "状況": "💤 待機中", "店舗": "-"})
                         else:
                             status_summary.append({"シート": name, "状況": "⚪ データなし", "店舗": "-"})
                             
-                    except Exception:
-                        status_summary.append({"シート": name, "状況": "⚠️ 読込エラー", "店舗": "-"})
+                    except Exception as e:
+                        status_summary.append({"シート": name, "状況": f"⚠️ 読込エラー", "店舗": "-"})
 
                 # 表示
-                st.success(f"✅ 取得完了（確認時刻: {datetime.now(JST).strftime('%H:%M:%S')}）")
+                st.success(f"✅ 最新同期完了（確認時刻: {datetime.now(JST).strftime('%H:%M:%S')}）")
                 st.table(pd.DataFrame(status_summary))
-                
-                st.warning("⚠️ これでも時間が古い場合、スプレッドシート側で一度「H列」を並び替えるか、手動で何か1文字書き込んで保存してみてください。Google側の反映が加速されます。")
 
             except Exception as e:
                 st.error(f"接続エラー: {e}")
@@ -290,6 +290,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
