@@ -78,92 +78,75 @@ with tab_manual:
 with tab_operation:
     st.header("📝 運用マニュアル：2つのアプリの使い分け")
     
-    # URL設定（運用環境に合わせて適宜修正してください）
+    # URL設定
     URL_REGIST = "https://app-diary-app-krfts9htfjkvrq275esxfq.streamlit.app/"
     URL_EDIT = "https://app-diary-app-vstgarmm2invbrbxhuqpra.streamlit.app/"
     URL_STOCK_SHEET = "https://docs.google.com/spreadsheets/d/1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
 
+    # 全体の説明
+    st.info("このシステムは、日々の「投稿予約」と、店舗終了時の「データ整理」を自動化するために2つのアプリに分かれています。")
+
+    # --- ステップ1 & 2 (概要) ---
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("✨ 1. 新規登録")
+        st.markdown(f"**[登録アプリ]({URL_REGIST})** を使用。時間・名前・本文を入力して一括登録します。")
+    with col2:
+        st.subheader("🛠 2. 修正・確認")
+        st.markdown(f"**[編集アプリ]({URL_EDIT})** を使用。登録した内容の変更や、画像の見え方を確認します。")
+
+    st.divider()
+
+    # --- ステップ3 (詳細解説：落ち店移動) ---
+    st.subheader("🚀 3. 店舗終了時のデータ整理（落ち店移動）")
+    
+    # 機能のメリット説明
+    st.markdown("""
+    店舗の契約が終了した際、手動でデータを消すと「再開時にまた打ち直す」手間が発生します。
+    **「落ち店移動」機能**を使うと、データを「捨てる」のではなく「倉庫に預ける」処理を自動で行います。
+    """)
+
+    # 見栄えを整えたHTMLカード
     st.markdown(f"""
-    <style>
-        .card {{
-            background-color: white;
-            padding: 25px;
-            border-radius: 15px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            margin-bottom: 30px;
-            border: 1px solid #e2e8f0;
-        }}
-        .step-num {{
-            display: inline-block;
-            background-color: #2563eb;
-            color: white;
-            width: 30px;
-            height: 30px;
-            border-radius: 50%;
-            text-align: center;
-            line-height: 30px;
-            margin-right: 10px;
-            font-weight: bold;
-        }}
-    </style>
-
-    <div class="card">
-        <h2 style="color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 10px;">
-            <span class="step-num">1</span>新規データの一括登録
-        </h2>
-        <p>新しい日記を予約する際は<b>「登録用アプリ」</b>を使用します。</p>
-        <div style="background-color: #f8fafc; padding: 20px; border-radius: 10px; border-left: 5px solid #2563eb; margin: 15px 0;">
-            <ol style="line-height: 2;">
-                <li><a href="{URL_REGIST}" target="_blank"><b>登録用アプリ</b></a> を開く</li>
-                <li>「アカウント」「エリア」「店舗名」を選択</li>
-                <li>一覧表に内容（時間、名前、本文など）を入力し、画像をアップ</li>
-                <li><b>「🔥 データを一括登録する」</b> をクリック！</li>
-            </ol>
-        </div>
+    <div style="background-color: #fff1f2; padding: 20px; border-radius: 10px; border-left: 5px solid #e11d48; margin-bottom: 20px;">
+        <h4 style="color: #e11d48; margin-top: 0;">🛠 移動の具体的なやり方</h4>
+        <ol style="line-height: 1.8;">
+            <li><a href="{URL_EDIT}" target="_blank" style="color: #e11d48; font-weight: bold;">編集・管理用アプリ</a> を開く。</li>
+            <li>タブ <b>「📊 ② 店舗アカウント状況」</b> を選択。</li>
+            <li>一覧から終了する店舗に<b>チェック</b>を入れる。</li>
+            <li>画面下の <b>「🚀 選択した店舗を【落ち店】へ移動する」</b> ボタンを押す。</li>
+            <li>赤い確認メッセージが出るので <b>「⭕ はい、実行します」</b> をクリック。</li>
+        </ol>
+        <p style="font-size: 0.9rem; color: #b91c1c; background: #fee2e2; padding: 10px; border-radius: 5px;">
+            ⚠️ <b>完了まで待機：</b> 処理中は裏でシートの書き換えと画像の移動を行っています。数秒〜数十秒かかるので、画面が切り替わるまで閉じないでください。
+        </p>
     </div>
 
-    <div class="card">
-        <h2 style="color: #10b981; border-bottom: 2px solid #10b981; padding-bottom: 10px;">
-            <span class="step-num">2</span>内容の確認・個別修正
-        </h2>
-        <p>登録済みのデータの修正や、画像の差し替えを行う場合です。</p>
-        <div style="background-color: #f0fdf4; padding: 20px; border-radius: 10px; border-left: 5px solid #10b981; margin: 15px 0;">
-            <ol style="line-height: 2;">
-                <li><a href="{URL_EDIT}" target="_blank"><b>編集・管理用アプリ</b></a> を開く</li>
-                <li>修正したい店舗を選択し、画像と本文のセットを確認</li>
-                <li>内容を書き換えたら、必ず直下の <b>「💾 内容を保存」</b> をクリック</li>
-            </ol>
-        </div>
+    <div style="background-color: #f8fafc; padding: 20px; border-radius: 10px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
+        <h4 style="margin-top: 0; color: #334155;">❓ 移動するとどうなる？（メリット）</h4>
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+                <th style="text-align: left; padding: 8px; color: #64748b;">対象</th>
+                <th style="text-align: left; padding: 8px; color: #64748b;">処理内容</th>
+            </tr>
+            <tr>
+                <td style="padding: 8px; font-weight: bold;">日記データ</td>
+                <td style="padding: 8px;"><a href="{URL_STOCK_SHEET}" target="_blank">ストック用シート</a>へ自動移動。他の店舗で再利用できます。</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px; font-weight: bold;">投稿システム</td>
+                <td style="padding: 8px;">ログイン情報が削除されるため、<b>間違えて投稿される事故</b>を100%防ぎます。</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px; font-weight: bold;">画像ファイル</td>
+                <td style="padding: 8px;">「【落ち店】フォルダ」へ自動移動。サーバーを綺麗に保てます。</td>
+            </tr>
+        </table>
     </div>
 
-    <div class="card">
-        <h2 style="color: #f59e0b; border-bottom: 2px solid #f59e0b; padding-bottom: 10px;">
-            <span class="step-num">3</span>店舗終了時のデータ整理（落ち店移動）
-        </h2>
-        <p>契約終了や一時停止の店舗は、専用の<b>「移動機能」</b>で安全に処理します。</p>
-        
-        <div style="background-color: #fff1f2; padding: 20px; border-radius: 10px; border-left: 5px solid #e11d48; margin: 15px 0;">
-            <h4 style="color: #e11d48; margin-top: 0;">🛠 移動の手順</h4>
-            <ol style="line-height: 2;">
-                <li><a href="{URL_EDIT}" target="_blank"><b>編集アプリ</b></a> の「📊 ② 店舗アカウント状況」タブを開く</li>
-                <li>対象の店舗にチェックを入れ、<b>「🚀 【落ち店】へ移動する」</b>を押す</li>
-                <li>最終確認で「⭕ はい」を押して、<b>完了画面が出るまで待つ</b></li>
-            </ol>
-
-            <div style="background-color: white; padding: 15px; border-radius: 8px; margin-top: 15px; border: 1px dashed #e11d48;">
-                <p style="font-weight: bold; margin-bottom: 5px; color: #333;">💡 移動するとデータはどうなる？</p>
-                <ul style="font-size: 0.9rem; color: #4b5563; margin-bottom: 0;">
-                    <li><b>日記の保管</b>：<a href="{URL_STOCK_SHEET}" target="_blank">ストック用シート</a>へ自動転記（後で再利用可）</li>
-                    <li><b>誤投稿防止</b>：ログイン管理シートから該当店舗を自動削除</li>
-                    <li><b>画像の整理</b>：GCS内の画像を自動で「【落ち店】フォルダ」へ退避</li>
-                </ul>
-            </div>
-        </div>
-        
-        <div style="background-color: #fffbeb; padding: 15px; border-radius: 10px; border-left: 5px solid #f59e0b;">
-            <p style="margin-bottom: 0;"><b>🔁 同じ日記を再投稿したい場合：</b><br>
-            スプレッドシートのH列（ステータス）にある「完了」の文字を消して<b>「空欄」</b>にするだけで、次回の巡回時に再度投稿されます。</p>
-        </div>
+    <div style="background-color: #fffbeb; padding: 15px; border-radius: 10px; border-left: 5px solid #f59e0b;">
+        <p style="margin-bottom: 0;"><b>🔁 おまけ：同じ日記を再投稿したい時</b><br>
+        スプレッドシートのH列（ステータス）にある「完了」の文字を消して<b>「空欄」</b>にするだけで、次回の巡回時に再度投稿が予約されます。</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -199,6 +182,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
