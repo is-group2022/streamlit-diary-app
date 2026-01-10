@@ -109,8 +109,7 @@ def main():
     full_df.columns = DF_COLS
     full_df['__row__'] = range(2, len(data) + 1)
 
-    # --- 空白行の除外処理を追加 ---
-    # 店名と女の子の名前の両方が空、もしくはどちらかが空の行をフィルタリング
+    # --- 空白行の除外処理 ---
     full_df = full_df[full_df["店名"].str.strip() != ""]
     full_df = full_df[full_df["女の子の名前"].str.strip() != ""]
 
@@ -160,7 +159,14 @@ def main():
     for idx, row in target_df.iterrows():
         base_time = parse_to_datetime(row["投稿時間"])
         name_norm = normalize_text(row["女の子の名前"])
-        matched_files = [img for img in store_images if name_norm in normalize_text(img.split('/')[-1]) and is_time_match(base_time, img.split('/')[-1])]
+        
+        # 名前の一致判定を「部分一致」に強化
+        # シート上の名前がファイル名に含まれているか、またはその逆
+        matched_files = [
+            img for img in store_images 
+            if (name_norm in normalize_text(img.split('/')[-1]) or normalize_text(img.split('/')[-1]) in name_norm)
+            and is_time_match(base_time, img.split('/')[-1])
+        ]
 
         with st.container():
             st.markdown(f"#### 👤 {row['女の子の名前']} / ⏰ {row['投稿時間']}")
