@@ -4,7 +4,7 @@ import pandas as pd
 from google.cloud import bigquery
 
 # --- ページ設定 ---
-st.set_page_config(page_title="AUTO-POST 運用管理", layout="wide")
+st.set_page_config(page_title="自動日記運用マニュアル", layout="wide")
 
 # --- モダンUIデザイン（文字を大きく、PCで見やすく） ---
 st.markdown("""
@@ -258,6 +258,7 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
