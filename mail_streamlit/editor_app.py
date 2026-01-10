@@ -55,19 +55,24 @@ SPRS = GC.open_by_key(SHEET_ID)
 # --- 4. UI構築 ---
 st.set_page_config(layout="wide", page_title="写メ日記エディタ")
 
-# カスタムCSS (余白の徹底排除)
+# カスタムCSS (重なりを修正)
 st.markdown("""
     <style>
     [data-testid="stHeader"] { display: none; }
-    /* タイトル直後のマージンを消去 */
-    .stApp h1 { margin-bottom: -40px !important; padding-bottom: 0px !important; }
     
-    /* 選択パネルのスタイルと余白調整 */
+    /* タイトルの余白設定：重ならないように調整 */
+    .stApp h1 { 
+        padding-top: 20px !important; 
+        padding-bottom: 10px !important; 
+        margin-bottom: 0px !important; 
+    }
+    
+    /* 選択パネルのスタイル */
     .filter-panel {
         background-color: #f1f3f6;
         padding: 15px 20px;
         border-radius: 10px;
-        margin-top: 0px !important;
+        margin-top: 10px !important; /* タイトルとの距離を少し確保 */
         margin-bottom: 20px;
         border: 1px solid #d1d5db;
     }
@@ -85,7 +90,7 @@ def main():
 
     # --- メイン画面上部の選択パネル ---
     st.markdown('<div class="filter-panel">', unsafe_allow_html=True)
-    c1, c2, c3, c4 = st.columns([1, 1, 1, 2]) # 検索窓用にカラム追加
+    c1, c2, c3, c4 = st.columns([1, 1, 1, 2])
     
     with c1:
         sel_acc = st.selectbox("👤 アカウント", ACCOUNT_OPTIONS, index=0)
@@ -117,8 +122,7 @@ def main():
             st.selectbox("🏢 店舗", ["エリアを選択"], disabled=True)
             
     with c4:
-        # 名前やキーワードでの検索機能
-        search_query = st.text_input("🔍 名前・内容で検索", placeholder="女の子の名前やキーワード...")
+        search_query = st.text_input("🔍 名前・内容で検索", placeholder="キーワード入力...")
 
     st.markdown('</div>', unsafe_allow_html=True)
 
