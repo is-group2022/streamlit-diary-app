@@ -78,41 +78,92 @@ with tab_manual:
 with tab_operation:
     st.header("📝 運用マニュアル：2つのアプリの使い分け")
     
-    # URL設定
+    # URL設定（運用環境に合わせて適宜修正してください）
     URL_REGIST = "https://app-diary-app-krfts9htfjkvrq275esxfq.streamlit.app/"
     URL_EDIT = "https://app-diary-app-vstgarmm2invbrbxhuqpra.streamlit.app/"
-
-    # ステップ1と2はそのまま継続 ... (中略)
+    URL_STOCK_SHEET = "https://docs.google.com/spreadsheets/d/1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
 
     st.markdown(f"""
-    <div class="card">
-        <h2 style="color: #f59e0b; border-bottom: 2px solid #f59e0b; padding-bottom: 10px;">🔄 ステップ3：再投稿 ＆ 店舗の終了（落ち店移動）</h2>
-        <p>同じ内容をもう一度投稿したい場合や、店舗の契約が終了した際の<b>最重要ステップ</b>です。</p>
-        
-        <div style="background-color: #fffbeb; padding: 20px; border-radius: 10px; border-left: 5px solid #f59e0b; margin: 15px 0;">
-            <h4 style="margin-top: 0;">🔁 同じ内容をもう一度投稿する</h4>
-            <p>スプレッドシートのH列（ステータス列）にある「完了」という文字を消して<b>「空欄」</b>にするだけです。システムが自動で未投稿と判断し、次の巡回で再投稿します。</p>
-        </div>
+    <style>
+        .card {{
+            background-color: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            border: 1px solid #e2e8f0;
+        }}
+        .step-num {{
+            display: inline-block;
+            background-color: #2563eb;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            margin-right: 10px;
+            font-weight: bold;
+        }}
+    </style>
 
+    <div class="card">
+        <h2 style="color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 10px;">
+            <span class="step-num">1</span>新規データの一括登録
+        </h2>
+        <p>新しい日記を予約する際は<b>「登録用アプリ」</b>を使用します。</p>
+        <div style="background-color: #f8fafc; padding: 20px; border-radius: 10px; border-left: 5px solid #2563eb; margin: 15px 0;">
+            <ol style="line-height: 2;">
+                <li><a href="{URL_REGIST}" target="_blank"><b>登録用アプリ</b></a> を開く</li>
+                <li>「アカウント」「エリア」「店舗名」を選択</li>
+                <li>一覧表に内容（時間、名前、本文など）を入力し、画像をアップ</li>
+                <li><b>「🔥 データを一括登録する」</b> をクリック！</li>
+            </ol>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 style="color: #10b981; border-bottom: 2px solid #10b981; padding-bottom: 10px;">
+            <span class="step-num">2</span>内容の確認・個別修正
+        </h2>
+        <p>登録済みのデータの修正や、画像の差し替えを行う場合です。</p>
+        <div style="background-color: #f0fdf4; padding: 20px; border-radius: 10px; border-left: 5px solid #10b981; margin: 15px 0;">
+            <ol style="line-height: 2;">
+                <li><a href="{URL_EDIT}" target="_blank"><b>編集・管理用アプリ</b></a> を開く</li>
+                <li>修正したい店舗を選択し、画像と本文のセットを確認</li>
+                <li>内容を書き換えたら、必ず直下の <b>「💾 内容を保存」</b> をクリック</li>
+            </ol>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 style="color: #f59e0b; border-bottom: 2px solid #f59e0b; padding-bottom: 10px;">
+            <span class="step-num">3</span>店舗終了時のデータ整理（落ち店移動）
+        </h2>
+        <p>契約終了や一時停止の店舗は、専用の<b>「移動機能」</b>で安全に処理します。</p>
+        
         <div style="background-color: #fff1f2; padding: 20px; border-radius: 10px; border-left: 5px solid #e11d48; margin: 15px 0;">
-            <h4 style="margin-top: 0; color: #e11d48;">🚪 店舗が終了（落ち店）になった場合</h4>
-            <p>手作業でのデータ削除は不要です。<a href="{URL_EDIT}" target="_blank"><b>編集・管理用アプリ</b></a> の<b>「📊 ② 店舗アカウント状況」</b>タブを使って一括整理します。</p>
-            
-            <p><b>【実行の手順】</b></p>
-            <ol>
-                <li>編集アプリで移動させたい店舗に<b>チェック</b>を入れる。</li>
-                <li><b>「🚀 選択した店舗を【落ち店】へ移動する」</b>をクリック。</li>
-                <li>確認画面で<b>「⭕ はい、実行します」</b>を押して待機（完了まで画面を閉じない）。</li>
+            <h4 style="color: #e11d48; margin-top: 0;">🛠 移動の手順</h4>
+            <ol style="line-height: 2;">
+                <li><a href="{URL_EDIT}" target="_blank"><b>編集アプリ</b></a> の「📊 ② 店舗アカウント状況」タブを開く</li>
+                <li>対象の店舗にチェックを入れ、<b>「🚀 【落ち店】へ移動する」</b>を押す</li>
+                <li>最終確認で「⭕ はい」を押して、<b>完了画面が出るまで待つ</b></li>
             </ol>
 
-            <p style="margin-top: 15px; font-weight: bold; border-top: 1px dashed #e11d48; padding-top: 10px;">⚠️ 実行後に自動で行われること：</p>
-            <ul style="font-size: 0.9rem;">
-                <li><b>日記文</b>：<a href="https://docs.google.com/spreadsheets/d/1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM" target="_blank">使用可能日記文シート</a>へ自動バックアップ。</li>
-                <li><b>ログイン情報</b>：誤投稿を防ぐため、システムからID・PWを完全削除。</li>
-                <li><b>画像データ</b>：ストレージ内のフォルダを<b>「【落ち店】/店舗名/」</b>へ自動移動。</li>
-            </ul>
+            <div style="background-color: white; padding: 15px; border-radius: 8px; margin-top: 15px; border: 1px dashed #e11d48;">
+                <p style="font-weight: bold; margin-bottom: 5px; color: #333;">💡 移動するとデータはどうなる？</p>
+                <ul style="font-size: 0.9rem; color: #4b5563; margin-bottom: 0;">
+                    <li><b>日記の保管</b>：<a href="{URL_STOCK_SHEET}" target="_blank">ストック用シート</a>へ自動転記（後で再利用可）</li>
+                    <li><b>誤投稿防止</b>：ログイン管理シートから該当店舗を自動削除</li>
+                    <li><b>画像の整理</b>：GCS内の画像を自動で「【落ち店】フォルダ」へ退避</li>
+                </ul>
+            </div>
         </div>
-        <p style="font-size: 0.85rem; color: #64748b;">※「落ち店」に移動した画像は、登録用アプリの「🖼 ④ 使用可能画像」タブからいつでも再利用・削除が可能です。</p>
+        
+        <div style="background-color: #fffbeb; padding: 15px; border-radius: 10px; border-left: 5px solid #f59e0b;">
+            <p style="margin-bottom: 0;"><b>🔁 同じ日記を再投稿したい場合：</b><br>
+            スプレッドシートのH列（ステータス）にある「完了」の文字を消して<b>「空欄」</b>にするだけで、次回の巡回時に再度投稿されます。</p>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -148,5 +199,6 @@ with tab_billing:
         <p><b>終了予定：</b> 2026年3月14日</p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
