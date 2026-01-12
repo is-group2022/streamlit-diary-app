@@ -254,7 +254,7 @@ def main():
                 if not matched:
                     missing_images.append(row)
             
-            # 2. 投稿数が極端に少ない店舗（20件以下）
+            # 2. 投稿数（日記データ数）チェック
             store_counts = full_df["店名"].value_counts()
             low_count_stores = store_counts[store_counts <= 20]
 
@@ -268,18 +268,19 @@ def main():
                         st.markdown(f"""<div class="error-card">
                         <b>📍 {item['エリア']} / {item['店名']}</b><br>
                         👤 {item['女の子の名前']} (⏰ {item['投稿時間']})<br>
-                        <small>※ 日記データはありますが画像フォルダ内に一致するファイルがありません。</small>
+                        <small>※ スプレッドシートにはありますが、画像フォルダに一致するものがありません。</small>
                         </div>""", unsafe_allow_html=True)
                 else:
                     st.success("画像不備はありません。")
 
             with c_err2:
-                st.subheader(f"⚠️ 投稿数が少ない店舗 ({len(low_count_stores)}店舗)")
+                st.subheader(f"⚠️ 日記データが少ない店舗 (20件以下)")
                 if not low_count_stores.empty:
+                    st.info(f"対象：{len(low_count_stores)} 店舗")
                     for s_name, count in low_count_stores.items():
-                        st.warning(f"🏢 **{s_name}**: 残り `{count}` 件")
+                        st.warning(f"🏢 **{s_name}**: 総数 `{count}` 件")
                 else:
-                    st.success("すべての店舗で十分なデータがあります。")
+                    st.success("すべての店舗で20件以上のデータがあります。")
         else:
             st.info("アカウントを選択して更新ボタンを押してください。")
 
