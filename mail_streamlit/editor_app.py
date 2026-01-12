@@ -45,7 +45,7 @@ def is_time_match(base_time, target_filename, window_min=20):
 def get_cached_url(blob_name):
     return f"https://storage.googleapis.com/{GCS_BUCKET_NAME}/{urllib.parse.quote(blob_name)}"
 
-# --- 3. API接続 ---
+# --- 3. API接続 & キャッシュ設定 ---
 @st.cache_resource(ttl=3600)
 def get_clients():
     gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
@@ -53,9 +53,17 @@ def get_clients():
     return gc, gcs
 
 GC, GCS_CLIENT = get_clients()
-SPRS = GC.open_by_key(SHEET_ID)
-# Tab2移動機能用のステータスシート
-STATUS_SPRS = GC.open_by_key(ACCOUNT_STATUS_SHEET_ID)
+
+# 【API制限対策】シート読み込みを1週間キャッシュ
+@st.cache_data(ttl=604800)
+def get_full_sheet_data(sheet_key, worksheet_name):
+    try:
+        sh = GC.open_by_key(sheet_key)
+        ws = sh.worksheet(worksheet_name)
+        return ws.get_all_values()
+    except Exception as e:
+        st.error(f"シート読み込みエラー: {e}")
+        return None
 
 # --- 4. UI構築 ---
 st.set_page_config(layout="wide", page_title="写メ日記投稿データ管理")
@@ -74,7 +82,7 @@ st.markdown("""
     /* タイトルの位置：消えない程度に引き上げ */
     .stApp h1 { 
         padding-top: 0px !important; 
-        margin-top: -15px !important; /* 消えかかっていたので数値を緩めました */
+        margin-top: -15px !important;
         padding-bottom: 10px !important; 
         margin-bottom: 0px !important;
         font-size: 1.8rem !important;
@@ -97,12 +105,12 @@ st.markdown("""
         margin-bottom: 30px;
     }
     
-    /* タブの高さ調整（もしタブを使っている場合） */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
     }
     </style>
 """, unsafe_allow_html=True)
+
 def main():
     st.title("📸 写メ日記投稿データ管理")
 
@@ -134,10 +142,10 @@ def main():
         with c1:
             sel_acc = st.selectbox("👤 アカウント", ACCOUNT_OPTIONS, index=0)
         
-        ws = SPRS.worksheet(SHEET_MAP[sel_acc])
-        data = ws.get_all_values()
+        # キャッシュからデータを取得
+        data = get_full_sheet_data(SHEET_ID, SHEET_MAP[sel_acc])
         
-        if len(data) <= 1:
+        if not data or len(data) <= 1:
             st.warning("有効なデータがありません。")
             st.markdown('</div>', unsafe_allow_html=True)
         else:
@@ -210,8 +218,10 @@ def main():
                             new_title = st.text_input("タイトル", row["タイトル"], key=f"ti_{idx}")
                             new_body = st.text_area("本文", row["本文"], key=f"bo_{idx}", height=400)
                             if st.button("💾 内容を保存", key=f"sv_{idx}", type="primary"):
+                                ws = GC.open_by_key(SHEET_ID).worksheet(SHEET_MAP[sel_acc])
                                 ws.update_cell(row['__row__'], 6, new_title)
                                 ws.update_cell(row['__row__'], 7, new_body)
+                                st.cache_data.clear() # 保存時にキャッシュクリア
                                 st.toast(f"{row['女の子の名前']} の日記を保存しました！")
 
                         with col_img:
@@ -269,9 +279,8 @@ def main():
         acc_summary = {}; acc_counts = {}
         try:
             for opt in ACCOUNT_OPTIONS:
-                ws_acc = SPRS.worksheet(SHEET_MAP[opt])
-                rows = ws_acc.get_all_values()
-                if len(rows) > 1:
+                rows = get_full_sheet_data(SHEET_ID, SHEET_MAP[opt])
+                if rows and len(rows) > 1:
                     for i, r in enumerate(rows[1:]):
                         if any(str(c).strip() for c in r[:7]):
                             combined_data.append([opt, i+2] + [r[j] if j<len(r) else "" for j in range(7)])
@@ -321,17 +330,18 @@ def main():
                             
                             for item in selected_shops:
                                 # ① 日記移動
-                                ws_main = SPRS.worksheet(SHEET_MAP[item['acc']])
+                                ws_main = GC.open_by_key(SHEET_ID).worksheet(SHEET_MAP[item['acc']])
                                 main_data = ws_main.get_all_values()
                                 for row_idx in range(len(main_data), 0, -1):
                                     row = main_data[row_idx-1]
                                     if len(row) >= 2 and row[1] == item['shop']:
                                         ws_stock.append_row([None, None, row[5], row[6]], value_input_option='USER_ENTERED')
-                                        time.sleep(1.2)
+                                        time.sleep(2.0) # API節約のため少し長めに待機
                                         ws_main.delete_rows(row_idx)
 
-                                # ② リンク削除 (ステータスシート)
-                                ws_link = STATUS_SPRS.worksheet(SHEET_MAP[item['acc']])
+                                # ② リンク削除
+                                status_sprs = GC.open_by_key(ACCOUNT_STATUS_SHEET_ID)
+                                ws_link = status_sprs.worksheet(SHEET_MAP[item['acc']])
                                 link_data = ws_link.get_all_values()
                                 for row_idx in range(len(link_data), 0, -1):
                                     if len(link_data[row_idx-1]) >= 2 and link_data[row_idx-1][1] == item['shop']:
@@ -354,17 +364,10 @@ def main():
                             
                             st.success("🎉 移動完了！")
                             st.session_state.confirm_move = False
-                            st.cache_data.clear() 
+                            st.cache_data.clear() # 完了後にキャッシュクリア 
                             st.rerun()
                         except Exception as e:
                             st.error(f"エラー: {e}")
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
