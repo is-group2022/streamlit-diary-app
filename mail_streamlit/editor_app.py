@@ -9,7 +9,6 @@ from google.cloud import storage
 # --- 1. 定数・設定 ---
 try:
     SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"]
-    # Tab2移動機能用の追加ID
     ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
     
     GCS_BUCKET_NAME = "auto-poster-images"
@@ -54,7 +53,7 @@ def get_clients():
 
 GC, GCS_CLIENT = get_clients()
 
-# 【API制限対策】シート読み込みを1週間キャッシュ
+# 【API制限対策】手動更新ボタンが押されるまで1週間キャッシュを保持
 @st.cache_data(ttl=604800)
 def get_full_sheet_data(sheet_key, worksheet_name):
     try:
@@ -68,79 +67,40 @@ def get_full_sheet_data(sheet_key, worksheet_name):
 # --- 4. UI構築 ---
 st.set_page_config(layout="wide", page_title="写メ日記投稿データ管理")
 
-# カスタムCSS (タイトルの高さを微調整)
 st.markdown("""
     <style>
     [data-testid="stHeader"] { display: none; }
-    
-    /* アプリ全体の最上部余白 */
-    .block-container {
-        padding-top: 1.5rem !important;
-        padding-bottom: 0rem !important;
-    }
-
-    /* タイトルの位置：消えない程度に引き上げ */
-    .stApp h1 { 
-        padding-top: 0px !important; 
-        margin-top: -15px !important;
-        padding-bottom: 10px !important; 
-        margin-bottom: 0px !important;
-        font-size: 1.8rem !important;
-    }
-    
-    /* 選択パネルのスタイル */
-    .filter-panel {
-        background-color: #f1f3f6;
-        padding: 12px 20px;
-        border-radius: 10px;
-        margin-top: 5px !important; 
-        margin-bottom: 15px;
-        border: 1px solid #d1d5db;
-    }
-    
+    .block-container { padding-top: 1.5rem !important; padding-bottom: 0rem !important; }
+    .stApp h1 { padding-top: 0px !important; margin-top: -15px !important; padding-bottom: 10px !important; margin-bottom: 0px !important; font-size: 1.8rem !important; }
+    .filter-panel { background-color: #f1f3f6; padding: 12px 20px; border-radius: 10px; margin-top: 5px !important; margin-bottom: 15px; border: 1px solid #d1d5db; }
     .stTextArea textarea { font-size: 15px; line-height: 1.6; }
-    .diary-divider {
-        border-bottom: 2px solid #eee;
-        padding-bottom: 30px;
-        margin-bottom: 30px;
-    }
-    
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-    }
+    .diary-divider { border-bottom: 2px solid #eee; padding-bottom: 30px; margin-bottom: 30px; }
+    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
     </style>
 """, unsafe_allow_html=True)
 
 def main():
     st.title("📸 写メ日記投稿データ管理")
 
-    # タブ構成の定義
     tab1, tab2 = st.tabs(["📝 日記編集・画像管理", "📊 店舗アカウント状況"])
 
     with tab1:
-        # --- 説明文セクション ---
-        with st.expander("📖 はじめての方へ：日記編集と画像管理の使い方（クリックで開閉）", expanded=False):
-            st.markdown("""
-            ### 1. データの絞り込み
-            上部のパネルから **「アカウント」「エリア」「店舗」** を選択してください。
-            * **検索窓**: 女の子の名前や日記の本文から特定のデータを素早く探せます。
-
-            ### 2. 日記の編集と保存
-            * タイトルや本文を書き換えた後は、必ず各項目下の **「💾 内容を保存」** ボタンを押してください。
-            * 保存ボタンを押すと、スプレッドシートが即座に更新されます。
-
-            ### 3. 画像の管理（自動紐付け）
-            * **自動表示**: ファイル名に「女の子の名前」が含まれ、かつ「投稿時間」が近い画像が自動で表示されます。
-            * **削除**: ゴミ箱アイコンからGCS上の画像を直接削除できます。
-            * **追加**: 「画像追加」からアップロードすると、適切なフォルダへ自動でリネームして保存されます。
-            """)
+        with st.expander("📖 使い方（クリックで開閉）", expanded=False):
+            st.markdown("### データの更新について\nこのアプリはAPI制限を避けるため、一度読み込んだデータを保存しています。スプレッドシートを直接編集した場合は、右上の **「🔄 最新データに更新」** ボタンを押してください。")
             
         # --- メイン画面上部の選択パネル ---
         st.markdown('<div class="filter-panel">', unsafe_allow_html=True)
-        c1, c2, c3, c4 = st.columns([1, 1, 1, 2])
+        c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1.5, 1]) # 更新ボタン用にカラム追加
         
         with c1:
             sel_acc = st.selectbox("👤 アカウント", ACCOUNT_OPTIONS, index=0)
+        
+        # 🔄 手動更新ボタン
+        with c5:
+            st.write("") # スペース調整
+            if st.button("🔄 最新データに更新", use_container_width=True):
+                st.cache_data.clear()
+                st.rerun()
         
         # キャッシュからデータを取得
         data = get_full_sheet_data(SHEET_ID, SHEET_MAP[sel_acc])
@@ -154,8 +114,6 @@ def main():
             while full_df.shape[1] < 7: full_df[full_df.shape[1]] = ""
             full_df.columns = DF_COLS
             full_df['__row__'] = range(2, len(data) + 1)
-
-            # 空白行の除外
             full_df = full_df[full_df["店名"].str.strip() != ""]
             full_df = full_df[full_df["女の子の名前"].str.strip() != ""]
 
@@ -172,16 +130,14 @@ def main():
                     st.selectbox("🏢 店舗", ["エリアを選択"], disabled=True)
                     
             with c4:
-                search_query = st.text_input("🔍 名前・内容で検索", placeholder="キーワード入力...")
+                search_query = st.text_input("🔍 検索", placeholder="キーワード入力...")
 
             st.markdown('</div>', unsafe_allow_html=True)
 
             if sel_store == "未選択":
                 st.info("💡 パネルからエリアと店舗を選択してください。")
             else:
-                # --- フィルタリング ---
                 target_df = full_df[(full_df["エリア"] == sel_area) & (full_df["店名"] == sel_store)]
-                
                 if search_query:
                     q = normalize_text(search_query)
                     target_df = target_df[
@@ -191,7 +147,7 @@ def main():
                         target_df["投稿時間"].str.contains(q)
                     ]
 
-                st.subheader(f"📊 {sel_store} ({len(target_df)} / {len(full_df[(full_df['エリア'] == sel_area) & (full_df['店名'] == sel_store)])} 件)")
+                st.subheader(f"📊 {sel_store} ({len(target_df)} 件)")
 
                 bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
                 blobs = list(bucket.list_blobs(prefix=f"{sel_area}/"))
@@ -203,12 +159,7 @@ def main():
                 for idx, row in target_df.iterrows():
                     base_time = parse_to_datetime(row["投稿時間"])
                     name_norm = normalize_text(row["女の子の名前"])
-                    
-                    matched_files = [
-                        img for img in store_images 
-                        if (name_norm in normalize_text(img.split('/')[-1]) or normalize_text(img.split('/')[-1]) in name_norm)
-                        and is_time_match(base_time, img.split('/')[-1])
-                    ]
+                    matched_files = [img for img in store_images if (name_norm in normalize_text(img.split('/')[-1]) or normalize_text(img.split('/')[-1]) in name_norm) and is_time_match(base_time, img.split('/')[-1])]
 
                     with st.container():
                         st.markdown(f"#### 👤 {row['女の子の名前']} / ⏰ {row['投稿時間']}")
@@ -221,8 +172,7 @@ def main():
                                 ws = GC.open_by_key(SHEET_ID).worksheet(SHEET_MAP[sel_acc])
                                 ws.update_cell(row['__row__'], 6, new_title)
                                 ws.update_cell(row['__row__'], 7, new_body)
-                                st.cache_data.clear() # 保存時にキャッシュクリア
-                                st.toast(f"{row['女の子の名前']} の日記を保存しました！")
+                                st.toast(f"{row['女の子の名前']} の日記を保存しました（反映には更新ボタンが必要です）")
 
                         with col_img:
                             if matched_files:
@@ -231,7 +181,6 @@ def main():
                                     with st.popover("🗑️ 削除"):
                                         if st.button("実行する", key=f"del_{idx}_{m_path}"):
                                             bucket.blob(m_path).delete()
-                                            st.cache_data.clear()
                                             st.rerun()
                             else:
                                 st.error("🚨 画像なし")
@@ -245,36 +194,13 @@ def main():
                                     new_blob_name = f"{sel_area}/{folder_name}/{row['投稿時間']}_{row['女の子の名前']}.{ext}"
                                     blob = bucket.blob(new_blob_name)
                                     blob.upload_from_string(up_file.getvalue(), content_type=up_file.type)
-                                    st.cache_data.clear()
                                     st.rerun()
                         
                         st.markdown("<div class='diary-divider'></div>", unsafe_allow_html=True)
 
     with tab2:
-        # --- 説明文セクション ---
-        with st.expander("📖 はじめての方へ：店舗移動機能の使い方（クリックで開閉）", expanded=False):
-            st.markdown("""
-            ### 1. 現在の状況を確認
-            各アカウント（A〜D）に登録されている店舗がエリアごとに表示されます。
-            
-            ### 2. 移動対象を選択
-            「落ち店（使用可能リスト）」へ移動させたい店舗にチェックを入れてください。
-            
-            ### 3. 移動を実行
-            画面下の **「🚀 選択した店舗を【落ち店】へ移動する」** ボタンを押してください。
-            
-            ---
-            #### ⚠️ 移動するとどうなる？（自動処理の内容）
-            * **日記データ**: 「使用可能日記文シート」の末尾へ自動でバックアップされます。
-            * **ログイン情報**: 写メ日記アカウントシートから、その店舗の行が削除されます。
-            * **画像データ**: GCS内の画像が自動的に **「【落ち店】/店舗名/」** フォルダへ移動されます。
-            
-            ※API制限を避けるため、1店舗ずつ順番に処理します。完了まで画面を閉じずにお待ちください。
-            """)
-            
         st.markdown("## 📊 店舗アカウント状況")
         
-        # --- データの再集計 ---
         combined_data = []
         acc_summary = {}; acc_counts = {}
         try:
@@ -291,7 +217,6 @@ def main():
                             acc_summary[opt][a].add(f"{m} : {s}")
         except: pass
 
-        # --- 表示と移動処理 ---
         if combined_data:
             for acc_code in ACCOUNT_OPTIONS:
                 count = acc_counts.get(acc_code, 0)
@@ -317,7 +242,6 @@ def main():
                 if st.session_state.get("confirm_move"):
                     st.error("❗ 本当に実行しますか？")
                     col_yes, col_no = st.columns(2)
-                    
                     if col_no.button("❌ キャンセル", use_container_width=True):
                         st.session_state.confirm_move = False
                         st.rerun()
@@ -327,19 +251,15 @@ def main():
                         try:
                             sh_stock = GC.open_by_key("1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM")
                             ws_stock = sh_stock.sheet1
-                            
                             for item in selected_shops:
-                                # ① 日記移動
                                 ws_main = GC.open_by_key(SHEET_ID).worksheet(SHEET_MAP[item['acc']])
                                 main_data = ws_main.get_all_values()
                                 for row_idx in range(len(main_data), 0, -1):
                                     row = main_data[row_idx-1]
                                     if len(row) >= 2 and row[1] == item['shop']:
                                         ws_stock.append_row([None, None, row[5], row[6]], value_input_option='USER_ENTERED')
-                                        time.sleep(2.0) # API節約のため少し長めに待機
+                                        time.sleep(2.0)
                                         ws_main.delete_rows(row_idx)
-
-                                # ② リンク削除
                                 status_sprs = GC.open_by_key(ACCOUNT_STATUS_SHEET_ID)
                                 ws_link = status_sprs.worksheet(SHEET_MAP[item['acc']])
                                 link_data = ws_link.get_all_values()
@@ -347,25 +267,19 @@ def main():
                                     if len(link_data[row_idx-1]) >= 2 and link_data[row_idx-1][1] == item['shop']:
                                         ws_link.delete_rows(row_idx)
                                         break
-                                
-                                # ③ GCS画像移動
                                 bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
                                 found_blobs = []
                                 for pfx in [f"{item['area']}/{item['shop']}/", f"{item['area']}/デリじゃ {item['shop']}/"]:
                                     blobs = list(bucket.list_blobs(prefix=pfx))
-                                    if blobs:
-                                        found_blobs = blobs
-                                        break
+                                    if blobs: found_blobs = blobs; break
                                 for b in found_blobs:
                                     file_name = b.name.split('/')[-1]
                                     new_name = f"【落ち店】/{item['shop']}/{file_name}"
                                     bucket.copy_blob(b, bucket, new_name)
                                     b.delete()
                             
-                            st.success("🎉 移動完了！")
+                            st.success("🎉 移動完了！ 最新データにするには更新ボタンを押してください。")
                             st.session_state.confirm_move = False
-                            st.cache_data.clear() # 完了後にキャッシュクリア 
-                            st.rerun()
                         except Exception as e:
                             st.error(f"エラー: {e}")
 
