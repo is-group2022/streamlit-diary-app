@@ -84,21 +84,18 @@ def main():
 
     tab1, tab2 = st.tabs(["📝 日記編集・画像管理", "📊 店舗アカウント状況"])
 
-    with tab1:
-        with st.expander("📖 使い方（クリックで開閉）", expanded=False):
-            st.markdown("### データの更新について\nこのアプリはAPI制限を避けるため、一度読み込んだデータを保存しています。スプレッドシートを直接編集した場合は、右上の **「🔄 最新データに更新」** ボタンを押してください。")
-            
-        # --- メイン画面上部の選択パネル ---
+    # --- メイン画面上部の選択パネル ---
         st.markdown('<div class="filter-panel">', unsafe_allow_html=True)
-        c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1.5, 1]) # 更新ボタン用にカラム追加
+        # カラムを一つ増やして、一括ダウンロードボタンのスペースを確保
+        c1, c2, c3, c4, c5, c6 = st.columns([1, 1, 1, 1.5, 1, 1]) 
         
         with c1:
             sel_acc = st.selectbox("👤 アカウント", ACCOUNT_OPTIONS, index=0)
         
-        # 🔄 手動更新ボタン
-        with c5:
-            st.write("") # スペース調整
-            if st.button("🔄 最新データに更新", use_container_width=True):
+        # 🔄 手動更新ボタン (c6に移動)
+        with c6:
+            st.write("") 
+            if st.button("🔄 更新", use_container_width=True):
                 st.cache_data.clear()
                 st.rerun()
         
@@ -132,72 +129,43 @@ def main():
             with c4:
                 search_query = st.text_input("🔍 検索", placeholder="キーワード入力...")
 
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            if sel_store == "未選択":
-                st.info("💡 パネルからエリアと店舗を選択してください。")
-            else:
-                target_df = full_df[(full_df["エリア"] == sel_area) & (full_df["店名"] == sel_store)]
-                if search_query:
-                    q = normalize_text(search_query)
-                    target_df = target_df[
-                        target_df["女の子の名前"].apply(normalize_text).str.contains(q) |
-                        target_df["タイトル"].apply(normalize_text).str.contains(q) |
-                        target_df["本文"].apply(normalize_text).str.contains(q) |
-                        target_df["投稿時間"].str.contains(q)
-                    ]
-
-                st.subheader(f"📊 {sel_store} ({len(target_df)} 件)")
-
-                bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
-                blobs = list(bucket.list_blobs(prefix=f"{sel_area}/"))
-                store_norm = normalize_text(sel_store)
-                store_images = [b.name for b in blobs if normalize_text(b.name.split('/')[1]) in [store_norm, normalize_text(f"デリじゃ{sel_store}")]]
-
-                st.write("---")
-
-                for idx, row in target_df.iterrows():
-                    base_time = parse_to_datetime(row["投稿時間"])
-                    name_norm = normalize_text(row["女の子の名前"])
-                    matched_files = [img for img in store_images if (name_norm in normalize_text(img.split('/')[-1]) or normalize_text(img.split('/')[-1]) in name_norm) and is_time_match(base_time, img.split('/')[-1])]
-
-                    with st.container():
-                        st.markdown(f"#### 👤 {row['女の子の名前']} / ⏰ {row['投稿時間']}")
-                        col_txt, col_img, col_ops = st.columns([2.5, 1, 1])
-
-                        with col_txt:
-                            new_title = st.text_input("タイトル", row["タイトル"], key=f"ti_{idx}")
-                            new_body = st.text_area("本文", row["本文"], key=f"bo_{idx}", height=400)
-                            if st.button("💾 内容を保存", key=f"sv_{idx}", type="primary"):
-                                ws = GC.open_by_key(SHEET_ID).worksheet(SHEET_MAP[sel_acc])
-                                ws.update_cell(row['__row__'], 6, new_title)
-                                ws.update_cell(row['__row__'], 7, new_body)
-                                st.toast(f"{row['女の子の名前']} の日記を保存しました（反映には更新ボタンが必要です）")
-
-                        with col_img:
-                            if matched_files:
-                                for m_path in matched_files:
-                                    st.image(get_cached_url(m_path), use_container_width=True)
-                                    with st.popover("🗑️ 削除"):
-                                        if st.button("実行する", key=f"del_{idx}_{m_path}"):
-                                            bucket.blob(m_path).delete()
-                                            st.rerun()
-                            else:
-                                st.error("🚨 画像なし")
-
-                        with col_ops:
-                            up_file = st.file_uploader("📥 画像追加", type=["jpg","png","jpeg"], key=f"up_{idx}")
-                            if up_file:
-                                if st.button("🚀 アップ", key=f"u_btn_{idx}"):
-                                    ext = up_file.name.split('.')[-1]
-                                    folder_name = f"デリじゃ {sel_store}" if row["媒体"] == "デリじゃ" else sel_store
-                                    new_blob_name = f"{sel_area}/{folder_name}/{row['投稿時間']}_{row['女の子の名前']}.{ext}"
-                                    blob = bucket.blob(new_blob_name)
-                                    blob.upload_from_string(up_file.getvalue(), content_type=up_file.type)
-                                    st.rerun()
+            # --- 📥 一括ダウンロード機能 (c5) ---
+            with c5:
+                st.write("") 
+                if sel_store != "未選択":
+                    bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
+                    blobs = list(bucket.list_blobs(prefix=f"{sel_area}/"))
+                    store_norm = normalize_text(sel_store)
+                    # 対象店舗の全画像リスト
+                    all_store_images = [b.name for b in blobs if normalize_text(b.name.split('/')[1]) in [store_norm, normalize_text(f"デリじゃ{sel_store}")]]
+                    
+                    if all_store_images:
+                        from io import BytesIO
+                        import zipfile
                         
-                        st.markdown("<div class='diary-divider'></div>", unsafe_allow_html=True)
+                        buf = BytesIO()
+                        with zipfile.ZipFile(buf, "w") as zf:
+                            for img_path in all_store_images:
+                                # 検索クエリがある場合は、ファイル名にクエリが含まれるものだけに絞る（任意）
+                                if search_query and normalize_text(search_query) not in normalize_text(img_path):
+                                    continue
+                                img_data = bucket.blob(img_path).download_as_bytes()
+                                zf.writestr(img_path.split("/")[-1], img_data)
+                        
+                        st.download_button(
+                            label="📥 画像一括保存",
+                            data=buf.getvalue(),
+                            file_name=f"{sel_store}_images.zip",
+                            mime="application/zip",
+                            use_container_width=True,
+                            type="secondary"
+                        )
+                    else:
+                        st.button("📥 画像なし", disabled=True, use_container_width=True)
+                else:
+                    st.button("📥 店舗選択", disabled=True, use_container_width=True)
 
+            st.markdown('</div>', unsafe_allow_html=True)
     with tab2:
         st.markdown("## 📊 店舗アカウント状況")
         
@@ -285,3 +253,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
