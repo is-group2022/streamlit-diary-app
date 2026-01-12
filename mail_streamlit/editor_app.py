@@ -84,15 +84,19 @@ def main():
 
     tab1, tab2 = st.tabs(["📝 日記編集・画像管理", "📊 店舗アカウント状況"])
 
-    # --- メイン画面上部の選択パネル ---
+    with tab1:
+        with st.expander("📖 使い方（クリックで開閉）", expanded=False):
+            st.markdown("### データの更新について\nこのアプリはAPI制限を避けるため、一度読み込んだデータを保存しています。スプレッドシートを直接編集した場合は、右上の **「🔄 最新データに更新」** ボタンを押してください。")
+            
+        # --- メイン画面上部の選択パネル ---
         st.markdown('<div class="filter-panel">', unsafe_allow_html=True)
-        # カラムを一つ増やして、一括ダウンロードボタンのスペースを確保
-        c1, c2, c3, c4, c5, c6 = st.columns([1, 1, 1, 1.5, 1, 1]) 
+        # ボタンを2つ並べるためにカラムを6つに調整
+        c1, c2, c3, c4, c5, c6 = st.columns([1, 1, 1, 1.5, 1, 0.8]) 
         
         with c1:
             sel_acc = st.selectbox("👤 アカウント", ACCOUNT_OPTIONS, index=0)
         
-        # 🔄 手動更新ボタン (c6に移動)
+        # 🔄 最新データに更新ボタン (右端に配置)
         with c6:
             st.write("") 
             if st.button("🔄 更新", use_container_width=True):
@@ -129,43 +133,39 @@ def main():
             with c4:
                 search_query = st.text_input("🔍 検索", placeholder="キーワード入力...")
 
-            # --- 📥 一括ダウンロード機能 (c5) ---
+            # --- 📥 画像一括ダウンロード (c5) ---
             with c5:
                 st.write("") 
                 if sel_store != "未選択":
                     bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
                     blobs = list(bucket.list_blobs(prefix=f"{sel_area}/"))
                     store_norm = normalize_text(sel_store)
-                    # 対象店舗の全画像リスト
-                    all_store_images = [b.name for b in blobs if normalize_text(b.name.split('/')[1]) in [store_norm, normalize_text(f"デリじゃ{sel_store}")]]
+                    store_images = [b.name for b in blobs if normalize_text(b.name.split('/')[1]) in [store_norm, normalize_text(f"デリじゃ{sel_store}")]]
                     
-                    if all_store_images:
+                    if store_images:
                         from io import BytesIO
                         import zipfile
-                        
                         buf = BytesIO()
                         with zipfile.ZipFile(buf, "w") as zf:
-                            for img_path in all_store_images:
-                                # 検索クエリがある場合は、ファイル名にクエリが含まれるものだけに絞る（任意）
-                                if search_query and normalize_text(search_query) not in normalize_text(img_path):
-                                    continue
-                                img_data = bucket.blob(img_path).download_as_bytes()
-                                zf.writestr(img_path.split("/")[-1], img_data)
+                            for img_path in store_images:
+                                file_content = bucket.blob(img_path).download_as_bytes()
+                                zf.writestr(img_path.split("/")[-1], file_content)
                         
                         st.download_button(
-                            label="📥 画像一括保存",
+                            label="📥 画像保存",
                             data=buf.getvalue(),
                             file_name=f"{sel_store}_images.zip",
                             mime="application/zip",
-                            use_container_width=True,
-                            type="secondary"
+                            use_container_width=True
                         )
                     else:
-                        st.button("📥 画像なし", disabled=True, use_container_width=True)
+                        st.button("📥 なし", disabled=True, use_container_width=True)
                 else:
-                    st.button("📥 店舗選択", disabled=True, use_container_width=True)
+                    st.button("📥 未選択", disabled=True, use_container_width=True)
 
             st.markdown('</div>', unsafe_allow_html=True)
+
+    
     with tab2:
         st.markdown("## 📊 店舗アカウント状況")
         
@@ -253,4 +253,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
