@@ -133,12 +133,14 @@ def main():
                 search_query = st.text_input("🔍 検索", placeholder="キーワード入力...")
 
             with c5:
+                # --- 画像一括保存の修正 ---
                 st.write("")
                 if sel_store != "未選択":
                     bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
                     blobs = list(bucket.list_blobs(prefix=f"{sel_area}/"))
-                    store_norm = normalize_text(sel_store)
-                    store_images_all = [b.name for b in blobs if normalize_text(b.name.split('/')[1]) in [store_norm, normalize_text(f"デリじゃ{sel_store}")]]
+                    
+                    # フォルダ名のリスト（駅ちか/デリじゃ両方含めるが、各日記の表示時は分ける）
+                    store_images_all = [b.name for b in blobs if normalize_text(b.name.split('/')[1]) in [normalize_text(sel_store), normalize_text(f"デリじゃ{sel_store}")]]
                     
                     if store_images_all:
                         from io import BytesIO
@@ -152,7 +154,6 @@ def main():
                                     f_bytes = bucket.blob(img_path).download_as_bytes()
                                     zf.writestr(img_path.split("/")[-1], f_bytes)
                                 except: pass
-                        
                         st.download_button(label="📥 画像一括保存", data=buf.getvalue(), file_name=f"{sel_store}_images.zip", mime="application/zip", use_container_width=True)
                     else:
                         st.button("📥 画像なし", disabled=True, use_container_width=True)
@@ -171,18 +172,34 @@ def main():
 
                 st.subheader(f"📊 {sel_store} ({len(target_df)} 件)")
                 bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
-                blobs = list(bucket.list_blobs(prefix=f"{sel_area}/"))
-                store_norm = normalize_text(sel_store)
-                store_images = [b.name for b in blobs if normalize_text(b.name.split('/')[1]) in [store_norm, normalize_text(f"デリじゃ{sel_store}")]]
+                
+                # --- 日記ごとの画像表示ロジック修正 ---
                 st.write("---")
 
                 for idx, row in target_df.iterrows():
+                    # 媒体（ row["媒体"] ）を見て、フォルダパスを特定する
+                    media_type = str(row["媒体"]).strip()
+                    if media_type == "デリじゃ":
+                        target_folder = f"デリじゃ {sel_store}"
+                    else:
+                        target_folder = sel_store
+                    
+                    # 特定したフォルダの中だけを検索
+                    prefix = f"{sel_area}/{target_folder}/"
+                    store_images = list(bucket.list_blobs(prefix=prefix))
+                    
                     base_time = parse_to_datetime(row["投稿時間"])
                     name_norm = normalize_text(row["女の子の名前"])
-                    matched_files = [img for img in store_images if (name_norm in normalize_text(img.split('/')[-1]) or normalize_text(img.split('/')[-1]) in name_norm) and is_time_match(base_time, img.split('/')[-1])]
+                    
+                    # 女の子の名前と投稿時間でマッチング
+                    matched_files = [
+                        img.name for img in store_images 
+                        if (name_norm in normalize_text(img.name.split('/')[-1]) or normalize_text(img.name.split('/')[-1]) in name_norm) 
+                        and is_time_match(base_time, img.name.split('/')[-1])
+                    ]
 
                     with st.container():
-                        st.markdown(f"#### 👤 {row['女の子の名前']} / ⏰ {row['投稿時間']}")
+                        st.markdown(f"#### 👤 {row['女の子の名前']} / ⏰ {row['投稿時間']} / 📱 {row['媒体']}")
                         col_txt, col_img, col_ops = st.columns([2.5, 1, 1])
                         with col_txt:
                             new_title = st.text_input("タイトル", row["タイトル"], key=f"ti_{idx}")
@@ -207,13 +224,12 @@ def main():
                             if up_file:
                                 if st.button("🚀 アップ", key=f"u_btn_{idx}"):
                                     ext = up_file.name.split('.')[-1]
-                                    f_folder = f"デリじゃ {sel_store}" if row["媒体"] == "デリじゃ" else sel_store
-                                    new_blob_name = f"{sel_area}/{f_folder}/{row['投稿時間']}_{row['女の子の名前']}.{ext}"
+                                    # アップロード時も媒体に合わせてフォルダを分ける
+                                    new_blob_name = f"{sel_area}/{target_folder}/{row['投稿時間']}_{row['女の子の名前']}.{ext}"
                                     blob = bucket.blob(new_blob_name)
                                     blob.upload_from_string(up_file.getvalue(), content_type=up_file.type)
                                     st.rerun()
                         st.markdown("<div class='diary-divider'></div>", unsafe_allow_html=True)
-
     # =========================================================================
     # TAB 2: データ不備チェック
     # =========================================================================
@@ -352,3 +368,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
