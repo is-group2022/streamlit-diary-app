@@ -84,19 +84,22 @@ def main():
 
     tab1, tab2, tab3 = st.tabs(["📝 日記編集・画像管理", "🔍 データ不備チェック", "📊 店舗アカウント状況"])
 
+    # =========================================================================
+    # TAB 1: 日記編集・画像管理
+    # =========================================================================
     with tab1:
         with st.expander("📖 使い方（クリックで開閉）", expanded=False):
-            st.markdown("### データの更新について\nこのアプリはAPI制限を避けるため、一度読み込んだデータを保存しています。スプレッドシートを直接編集した場合は、右上の **「🔄 最新データに更新」** ボタンを押してください。")
+            st.markdown("### データの更新について\nこのアプリはAPI制限を避けるため、データをキャッシュしています。最新にするには右上の **「🔄 更新」** を押してください。")
             
         st.markdown('<div class="filter-panel">', unsafe_allow_html=True)
         c1, c2, c3, c4, c5, c6 = st.columns([1, 1, 1, 1.5, 1, 0.8])
         
         with c1:
-            sel_acc = st.selectbox("👤 アカウント", ACCOUNT_OPTIONS, index=0)
+            sel_acc = st.selectbox("👤 アカウント", ACCOUNT_OPTIONS, index=0, key="acc_tab1")
         
         with c6:
             st.write("") 
-            if st.button("🔄 更新", use_container_width=True):
+            if st.button("🔄 更新", key="btn_reload_tab1", use_container_width=True):
                 st.cache_data.clear()
                 st.rerun()
         
@@ -150,13 +153,7 @@ def main():
                                     zf.writestr(img_path.split("/")[-1], f_bytes)
                                 except: pass
                         
-                        st.download_button(
-                            label="📥 画像一括保存",
-                            data=buf.getvalue(),
-                            file_name=f"{sel_store}_images.zip",
-                            mime="application/zip",
-                            use_container_width=True
-                        )
+                        st.download_button(label="📥 画像一括保存", data=buf.getvalue(), file_name=f"{sel_store}_images.zip", mime="application/zip", use_container_width=True)
                     else:
                         st.button("📥 画像なし", disabled=True, use_container_width=True)
                 else:
@@ -170,20 +167,13 @@ def main():
                 target_df = full_df[(full_df["エリア"] == sel_area) & (full_df["店名"] == sel_store)]
                 if search_query:
                     q = normalize_text(search_query)
-                    target_df = target_df[
-                        target_df["女の子の名前"].apply(normalize_text).str.contains(q) |
-                        target_df["タイトル"].apply(normalize_text).str.contains(q) |
-                        target_df["本文"].apply(normalize_text).str.contains(q) |
-                        target_df["投稿時間"].str.contains(q)
-                    ]
+                    target_df = target_df[target_df["女の子の名前"].apply(normalize_text).str.contains(q) | target_df["タイトル"].apply(normalize_text).str.contains(q) | target_df["本文"].apply(normalize_text).str.contains(q) | target_df["投稿時間"].str.contains(q)]
 
                 st.subheader(f"📊 {sel_store} ({len(target_df)} 件)")
-
                 bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
                 blobs = list(bucket.list_blobs(prefix=f"{sel_area}/"))
                 store_norm = normalize_text(sel_store)
                 store_images = [b.name for b in blobs if normalize_text(b.name.split('/')[1]) in [store_norm, normalize_text(f"デリじゃ{sel_store}")]]
-
                 st.write("---")
 
                 for idx, row in target_df.iterrows():
@@ -194,7 +184,6 @@ def main():
                     with st.container():
                         st.markdown(f"#### 👤 {row['女の子の名前']} / ⏰ {row['投稿時間']}")
                         col_txt, col_img, col_ops = st.columns([2.5, 1, 1])
-
                         with col_txt:
                             new_title = st.text_input("タイトル", row["タイトル"], key=f"ti_{idx}")
                             new_body = st.text_area("本文", row["本文"], key=f"bo_{idx}", height=400)
@@ -203,7 +192,6 @@ def main():
                                 ws.update_cell(row['__row__'], 6, new_title)
                                 ws.update_cell(row['__row__'], 7, new_body)
                                 st.toast(f"{row['女の子の名前']} の日記を保存しました")
-
                         with col_img:
                             if matched_files:
                                 for m_path in matched_files:
@@ -214,76 +202,76 @@ def main():
                                             st.rerun()
                             else:
                                 st.error("🚨 画像なし")
-
                         with col_ops:
                             up_file = st.file_uploader("📥 画像追加", type=["jpg","png","jpeg"], key=f"up_{idx}")
                             if up_file:
                                 if st.button("🚀 アップ", key=f"u_btn_{idx}"):
                                     ext = up_file.name.split('.')[-1]
-                                    folder_name = f"デリじゃ {sel_store}" if row["媒体"] == "デリじゃ" else sel_store
-                                    new_blob_name = f"{sel_area}/{folder_name}/{row['投稿時間']}_{row['女の子の名前']}.{ext}"
+                                    f_folder = f"デリじゃ {sel_store}" if row["媒体"] == "デリじゃ" else sel_store
+                                    new_blob_name = f"{sel_area}/{f_folder}/{row['投稿時間']}_{row['女の子の名前']}.{ext}"
                                     blob = bucket.blob(new_blob_name)
                                     blob.upload_from_string(up_file.getvalue(), content_type=up_file.type)
                                     st.rerun()
-                        
                         st.markdown("<div class='diary-divider'></div>", unsafe_allow_html=True)
 
+    # =========================================================================
+    # TAB 2: データ不備チェック
+    # =========================================================================
     with tab2:
-        st.markdown("## 🔍 データ不備チェック")
-        st.caption("現在選択中のアカウント内の全データをスキャンします。")
+        st.markdown('<div class="filter-panel">', unsafe_allow_html=True)
+        ce1, ce2 = st.columns([5, 1])
+        with ce1:
+            sel_acc_tab2 = st.selectbox("👤 対象アカウント", ACCOUNT_OPTIONS, index=0, key="acc_tab2")
+            st.caption("※ 現在スプレッドシートにあるデータをスキャンして画像との一致を確認します。")
+        with ce2:
+            st.write("")
+            if st.button("🔄 最新データでスキャン", key="btn_reload_tab2", use_container_width=True):
+                st.cache_data.clear()
+                st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
         
-        if 'full_df' in locals():
-            bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
+        data_tab2 = get_full_sheet_data(SHEET_ID, SHEET_MAP[sel_acc_tab2])
+        if data_tab2 and len(data_tab2) > 1:
+            df2 = pd.DataFrame(data_tab2[1:], columns=DF_COLS + [f"extra_{i}" for i in range(len(data_tab2[0])-7)])
+            df2 = df2[df2["店名"].str.strip() != ""]
             
-            # --- 解析準備 ---
+            bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
             all_blobs = []
-            for area in full_df["エリア"].unique():
+            for area in df2["エリア"].unique():
                 all_blobs.extend(list(bucket.list_blobs(prefix=f"{area}/")))
             
-            # 1. 日記はあるが画像がない（日記迷子）
             missing_images = []
-            for idx, row in full_df.iterrows():
+            for _, row in df2.iterrows():
                 b_time = parse_to_datetime(row["投稿時間"])
                 n_norm = normalize_text(row["女の子の名前"])
                 s_norm = normalize_text(row["店名"])
-                
-                # 当該店舗の画像があるか確認
                 store_blobs = [b.name for b in all_blobs if s_norm in normalize_text(b.name)]
                 matched = [img for img in store_blobs if (n_norm in normalize_text(img) or normalize_text(img) in n_norm) and is_time_match(b_time, img.split('/')[-1])]
-                
-                if not matched:
+                if not matched and row["女の子の名前"].strip() != "":
                     missing_images.append(row)
             
-            # 2. 投稿数（日記データ数）チェック
-            store_counts = full_df["店名"].value_counts()
+            store_counts = df2["店名"].value_counts()
             low_count_stores = store_counts[store_counts <= 20]
 
-            # --- 表示 ---
             c_err1, c_err2 = st.columns(2)
-            
             with c_err1:
-                st.subheader(f"❌ 画像が見つからない日記 ({len(missing_images)}件)")
+                st.subheader(f"❌ 画像がない日記 ({len(missing_images)}件)")
                 if missing_images:
                     for item in missing_images:
-                        st.markdown(f"""<div class="error-card">
-                        <b>📍 {item['エリア']} / {item['店名']}</b><br>
-                        👤 {item['女の子の名前']} (⏰ {item['投稿時間']})<br>
-                        <small>※ スプレッドシートにはありますが、画像フォルダに一致するものがありません。</small>
-                        </div>""", unsafe_allow_html=True)
+                        st.markdown(f'<div class="error-card"><b>📍 {item["エリア"]} / {item["店名"]}</b><br>👤 {item["女の子の名前"]} ({item["投稿時間"]})</div>', unsafe_allow_html=True)
                 else:
                     st.success("画像不備はありません。")
-
             with c_err2:
-                st.subheader(f"⚠️ 日記データが少ない店舗 (20件以下)")
+                st.subheader(f"⚠️ 日記が少ない店舗 (20件以下)")
                 if not low_count_stores.empty:
-                    st.info(f"対象：{len(low_count_stores)} 店舗")
                     for s_name, count in low_count_stores.items():
                         st.warning(f"🏢 **{s_name}**: 総数 `{count}` 件")
                 else:
-                    st.success("すべての店舗で20件以上のデータがあります。")
-        else:
-            st.info("アカウントを選択して更新ボタンを押してください。")
+                    st.success("全店舗20件以上あります。")
 
+    # =========================================================================
+    # TAB 3: 店舗アカウント状況 (旧Tab2)
+    # =========================================================================
     with tab3:
         st.markdown("## 📊 店舗アカウント状況")
         combined_data = []
@@ -315,22 +303,17 @@ def main():
                             for shop in sorted(shops):
                                 st.checkbox(f"{shop}", key=f"move_{acc_code}_{area_name}_{shop}")
             
-            selected_shops = [
-                {"acc": k.split('_')[1], "area": k.split('_')[2], "shop": k.split('_')[3].split(" : ")[-1]}
-                for k, v in st.session_state.items() if k.startswith("move_") and v
-            ]
+            selected_shops = [{"acc": k.split('_')[1], "area": k.split('_')[2], "shop": k.split('_')[3].split(" : ")[-1]} for k, v in st.session_state.items() if k.startswith("move_") and v]
 
             if selected_shops:
                 if st.button("🚀 選択した店舗を【落ち店】へ移動する", type="primary", use_container_width=True):
                     st.session_state.confirm_move = True
-
                 if st.session_state.get("confirm_move"):
                     st.error("❗ 本当に実行しますか？")
                     col_yes, col_no = st.columns(2)
                     if col_no.button("❌ キャンセル", use_container_width=True):
                         st.session_state.confirm_move = False
                         st.rerun()
-
                     if col_yes.button("⭕ はい、実行します", type="primary", use_container_width=True):
                         import time
                         try:
@@ -362,7 +345,6 @@ def main():
                                     new_name = f"【落ち店】/{item['shop']}/{file_name}"
                                     bucket.copy_blob(b, bucket, new_name)
                                     b.delete()
-                            
                             st.success("🎉 移動完了！ 最新データにするには更新ボタンを押してください。")
                             st.session_state.confirm_move = False
                         except Exception as e:
