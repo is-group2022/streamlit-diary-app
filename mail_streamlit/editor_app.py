@@ -53,7 +53,6 @@ def get_clients():
 
 GC, GCS_CLIENT = get_clients()
 
-# 【API制限対策】手動更新ボタンが押されるまで1週間キャッシュを保持
 @st.cache_data(ttl=604800)
 def get_full_sheet_data(sheet_key, worksheet_name):
     try:
@@ -76,34 +75,31 @@ st.markdown("""
     .stTextArea textarea { font-size: 15px; line-height: 1.6; }
     .diary-divider { border-bottom: 2px solid #eee; padding-bottom: 30px; margin-bottom: 30px; }
     .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+    .error-card { background-color: #fff1f1; border-left: 5px solid #ff4b4b; padding: 10px; margin-bottom: 10px; border-radius: 5px; }
     </style>
 """, unsafe_allow_html=True)
 
 def main():
     st.title("📸 写メ日記投稿データ管理")
 
-    tab1, tab2 = st.tabs(["📝 日記編集・画像管理", "📊 店舗アカウント状況"])
+    tab1, tab2, tab3 = st.tabs(["📝 日記編集・画像管理", "🔍 データ不備チェック", "📊 店舗アカウント状況"])
 
     with tab1:
         with st.expander("📖 使い方（クリックで開閉）", expanded=False):
             st.markdown("### データの更新について\nこのアプリはAPI制限を避けるため、一度読み込んだデータを保存しています。スプレッドシートを直接編集した場合は、右上の **「🔄 最新データに更新」** ボタンを押してください。")
             
-        # --- メイン画面上部の選択パネル ---
         st.markdown('<div class="filter-panel">', unsafe_allow_html=True)
-        # 6カラムに変更（アカウント, エリア, 店舗, 検索, 一括保存, 更新）
         c1, c2, c3, c4, c5, c6 = st.columns([1, 1, 1, 1.5, 1, 0.8])
         
         with c1:
             sel_acc = st.selectbox("👤 アカウント", ACCOUNT_OPTIONS, index=0)
         
-        # 🔄 手動更新ボタン (右端に配置)
         with c6:
             st.write("") 
             if st.button("🔄 更新", use_container_width=True):
                 st.cache_data.clear()
                 st.rerun()
         
-        # キャッシュからデータを取得
         data = get_full_sheet_data(SHEET_ID, SHEET_MAP[sel_acc])
         
         if not data or len(data) <= 1:
@@ -133,7 +129,6 @@ def main():
             with c4:
                 search_query = st.text_input("🔍 検索", placeholder="キーワード入力...")
 
-            # --- 📥 画像一括保存ボタン (c5) ---
             with c5:
                 st.write("")
                 if sel_store != "未選択":
@@ -148,11 +143,12 @@ def main():
                         buf = BytesIO()
                         with zipfile.ZipFile(buf, "w") as zf:
                             for img_path in store_images_all:
-                                # 検索クエリがある場合は絞り込み
                                 if search_query and normalize_text(search_query) not in normalize_text(img_path):
                                     continue
-                                f_bytes = bucket.blob(img_path).download_as_bytes()
-                                zf.writestr(img_path.split("/")[-1], f_bytes)
+                                try:
+                                    f_bytes = bucket.blob(img_path).download_as_bytes()
+                                    zf.writestr(img_path.split("/")[-1], f_bytes)
+                                except: pass
                         
                         st.download_button(
                             label="📥 画像一括保存",
@@ -206,7 +202,7 @@ def main():
                                 ws = GC.open_by_key(SHEET_ID).worksheet(SHEET_MAP[sel_acc])
                                 ws.update_cell(row['__row__'], 6, new_title)
                                 ws.update_cell(row['__row__'], 7, new_body)
-                                st.toast(f"{row['女の子の名前']} の日記を保存しました（反映には更新ボタンが必要です）")
+                                st.toast(f"{row['女の子の名前']} の日記を保存しました")
 
                         with col_img:
                             if matched_files:
@@ -233,8 +229,62 @@ def main():
                         st.markdown("<div class='diary-divider'></div>", unsafe_allow_html=True)
 
     with tab2:
-        st.markdown("## 📊 店舗アカウント状況")
+        st.markdown("## 🔍 データ不備チェック")
+        st.caption("現在選択中のアカウント内の全データをスキャンします。")
         
+        if 'full_df' in locals():
+            bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
+            
+            # --- 解析準備 ---
+            all_blobs = []
+            for area in full_df["エリア"].unique():
+                all_blobs.extend(list(bucket.list_blobs(prefix=f"{area}/")))
+            
+            # 1. 日記はあるが画像がない（日記迷子）
+            missing_images = []
+            for idx, row in full_df.iterrows():
+                b_time = parse_to_datetime(row["投稿時間"])
+                n_norm = normalize_text(row["女の子の名前"])
+                s_norm = normalize_text(row["店名"])
+                
+                # 当該店舗の画像があるか確認
+                store_blobs = [b.name for b in all_blobs if s_norm in normalize_text(b.name)]
+                matched = [img for img in store_blobs if (n_norm in normalize_text(img) or normalize_text(img) in n_norm) and is_time_match(b_time, img.split('/')[-1])]
+                
+                if not matched:
+                    missing_images.append(row)
+            
+            # 2. 投稿数が極端に少ない店舗（20件以下）
+            store_counts = full_df["店名"].value_counts()
+            low_count_stores = store_counts[store_counts <= 20]
+
+            # --- 表示 ---
+            c_err1, c_err2 = st.columns(2)
+            
+            with c_err1:
+                st.subheader(f"❌ 画像が見つからない日記 ({len(missing_images)}件)")
+                if missing_images:
+                    for item in missing_images:
+                        st.markdown(f"""<div class="error-card">
+                        <b>📍 {item['エリア']} / {item['店名']}</b><br>
+                        👤 {item['女の子の名前']} (⏰ {item['投稿時間']})<br>
+                        <small>※ 日記データはありますが画像フォルダ内に一致するファイルがありません。</small>
+                        </div>""", unsafe_allow_html=True)
+                else:
+                    st.success("画像不備はありません。")
+
+            with c_err2:
+                st.subheader(f"⚠️ 投稿数が少ない店舗 ({len(low_count_stores)}店舗)")
+                if not low_count_stores.empty:
+                    for s_name, count in low_count_stores.items():
+                        st.warning(f"🏢 **{s_name}**: 残り `{count}` 件")
+                else:
+                    st.success("すべての店舗で十分なデータがあります。")
+        else:
+            st.info("アカウントを選択して更新ボタンを押してください。")
+
+    with tab3:
+        st.markdown("## 📊 店舗アカウント状況")
         combined_data = []
         acc_summary = {}; acc_counts = {}
         try:
