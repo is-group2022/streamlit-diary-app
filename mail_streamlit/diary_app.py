@@ -4,37 +4,43 @@ import gspread
 import zipfile
 import datetime
 import re
+import os
 from io import BytesIO
 from datetime import timedelta
 from google.oauth2.service_account import Credentials
-from google.cloud import storage 
+from google.cloud import storage
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
 # --- 1. 定数と初期設定 ---
 try:
-    SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"] 
-    ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
-    USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
-    
-    GCS_BUCKET_NAME = "auto-poster-images"
+    # Secretsから辞書として取得
+    gcp_dict = st.secrets["gcp_service_account"].to_dict()
+    # 秘密鍵の改行文字を補正（これがないと認証エラーになります）
+    gcp_dict["private_key"] = gcp_dict["private_key"].replace("\\n", "\n")
+    
+    SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"] 
+    ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
+    USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
+    
+    GCS_BUCKET_NAME = "auto-poster-images"
 
-    SHEET_NAMES = st.secrets["sheet_names"]
-    POSTING_ACCOUNT_SHEETS = {
-        "A": "投稿Aアカウント",
-        "B": "投稿Bアカウント",
-        "C": "投稿Cアカウント",
-        "D": "投稿Dアカウント"
-    }
-    
-    USABLE_DIARY_SHEET = "【使用可能日記文】"
-    MEDIA_OPTIONS = ["駅ちか", "デリじゃ"]
-    POSTING_ACCOUNT_OPTIONS = ["A", "B", "C", "D"] 
-    
-    SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/cloud-platform']
-except KeyError:
-    st.error("🚨 secrets.tomlの設定を確認してください。")
-    st.stop()
+    SHEET_NAMES = st.secrets["sheet_names"]
+    POSTING_ACCOUNT_SHEETS = {
+        "A": "投稿Aアカウント",
+        "B": "投稿Bアカウント",
+        "C": "投稿Cアカウント",
+        "D": "投稿Dアカウント"
+    }
+    
+    USABLE_DIARY_SHEET = "【使用可能日記文】"
+    MEDIA_OPTIONS = ["駅ちか", "デリじゃ"]
+    POSTING_ACCOUNT_OPTIONS = ["A", "B", "C", "D"] 
+    
+    SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/cloud-platform']
+except Exception as e:
+    st.error(f"🚨 secrets.tomlの設定を確認してください: {e}")
+    st.stop()
 
 REGISTRATION_HEADERS = ["エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文"]
 INPUT_HEADERS = ["投稿時間", "女の子の名前", "タイトル", "本文"]
@@ -42,100 +48,94 @@ INPUT_HEADERS = ["投稿時間", "女の子の名前", "タイトル", "本文"]
 # --- 2. 各種API連携 ---
 @st.cache_resource(ttl=3600)
 def get_gspread_client():
-    """スプレッドシートAPIのクライアントを作成"""
-    return gspread.service_account_from_dict(st.secrets["gcp_service_account"])
+    """スプレッドシートAPIのクライアントを作成"""
+    # 補正済みのgcp_dictを使用
+    return gspread.service_account_from_dict(gcp_dict)
 
 @st.cache_resource(ttl=3600)
 def get_gcs_client():
-    """Google Cloud Storageのクライアントを作成"""
-    from google.cloud import storage
-    return storage.Client.from_service_account_info(st.secrets["gcp_service_account"])
+    """Google Cloud Storageのクライアントを作成"""
+    # 補正済みのgcp_dictを使用
+    return storage.Client.from_service_account_info(gcp_dict)
 
 try:
-    # 1. まずクライアントを作成
-    GC = get_gspread_client()
-    GCS_CLIENT = get_gcs_client()
-    
-    # 2. スプレッドシートを開く
-    SPRS = GC.open_by_key(SHEET_ID)
-    STATUS_SPRS = GC.open_by_key(ACCOUNT_STATUS_SHEET_ID)
-    
+    GC = get_gspread_client()
+    GCS_CLIENT = get_gcs_client()
+    SPRS = GC.open_by_key(SHEET_ID)
+    STATUS_SPRS = GC.open_by_key(ACCOUNT_STATUS_SHEET_ID)
 except Exception as e:
-    if "429" in str(e):
-        st.error("🚨 Google APIの制限を超えました。1分ほど待ってから再読み込みしてください。")
-    elif "name 'get_gcs_client'" in str(e):
-        st.error("🚨 関数定義が不足しています。修正コードを反映してください。")
-    else:
-        st.error(f"❌ API接続失敗: {e}")
-    st.stop()
-    
-# 【修正箇所】media引数を追加し、session_stateではなく選択された値を参照するように変更
+    if "429" in str(e):
+        st.error("🚨 Google APIの制限を超えました。1分ほど待ってください。")
+    else:
+        st.error(f"❌ API接続失敗: {e}")
+    st.stop()
+
 def gcs_upload_wrapper(uploaded_file, entry, area, store, media):
-    try:
-        bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
-        # 選択された媒体（media）を直接参照
-        folder_name = f"デリじゃ {store}" if media == "デリじゃ" else store
-        ext = uploaded_file.name.split('.')[-1]
-        blob_path = f"{area}/{folder_name}/{entry['投稿時間'].strip()}_{entry['女の子の名前'].strip()}.{ext}"
-        blob = bucket.blob(blob_path)
-        blob.upload_from_string(uploaded_file.getvalue(), content_type=uploaded_file.type)
-        return True
-    except Exception as e:
-        st.error(f"❌ GCSアップロード失敗: {e}")
-        return False
+    try:
+        bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
+        folder_name = f"デリじゃ {store}" if media == "デリじゃ" else store
+        ext = uploaded_file.name.split('.')[-1]
+        blob_path = f"{area}/{folder_name}/{entry['投稿時間'].strip()}_{entry['女の子の名前'].strip()}.{ext}"
+        blob = bucket.blob(blob_path)
+        blob.upload_from_string(uploaded_file.getvalue(), content_type=uploaded_file.type)
+        return True
+    except Exception as e:
+        st.error(f"❌ GCSアップロード失敗: {e}")
+        return False
 
 def get_cached_url(blob_name):
-    import urllib.parse
-    safe_path = urllib.parse.quote(blob_name)
-    return f"https://storage.googleapis.com/{GCS_BUCKET_NAME}/{safe_path}"
-    
+    import urllib.parse
+    safe_path = urllib.parse.quote(blob_name)
+    return f"https://storage.googleapis.com/{GCS_BUCKET_NAME}/{safe_path}"
+
 # --- 3. UI 構築 ---
 st.set_page_config(layout="wide", page_title="写メ日記投稿登録")
 
+# (以下、提供いただいたUIコードを継続)
 st.markdown("""
-    <style>
-    .block-container { padding-top: 0rem !important; padding-bottom: 0rem !important; }
-    header[data-testid="stHeader"] { display: none !important; }
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; height: 80px; }
-    button[data-baseweb="tab"] {
-        font-size: 32px !important; font-weight: 800 !important; height: 70px !important;
-        padding: 0px 30px !important; background-color: #f0f2f6 !important;
-        border-radius: 10px 10px 0px 0px !important; margin-right: 5px !important;
-    }
-    button[data-baseweb="tab"][aria-selected="true"] {
-        color: white !important; background-color: #FF4B4B !important;
-    }
-    </style>
+    <style>
+    .block-container { padding-top: 0rem !important; padding-bottom: 0rem !important; }
+    header[data-testid="stHeader"] { display: none !important; }
+    .stTabs [data-baseweb="tab-list"] { gap: 10px; height: 80px; }
+    button[data-baseweb="tab"] {
+        font-size: 32px !important; font-weight: 800 !important; height: 70px !important;
+        padding: 0px 30px !important; background-color: #f0f2f6 !important;
+        border-radius: 10px 10px 0px 0px !important; margin-right: 5px !important;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: white !important; background-color: #FF4B4B !important;
+    }
+    </style>
 """, unsafe_allow_html=True)
 
 if 'diary_entries' not in st.session_state:
-    st.session_state.diary_entries = [{h: "" for h in INPUT_HEADERS} for _ in range(40)]
+    st.session_state.diary_entries = [{h: "" for h in INPUT_HEADERS} for _ in range(40)]
 
-# タブ構成
 tab1, tab2, tab3, tab4 = st.tabs([
-    "📝 ① データ登録", 
-    "📊 ② 店舗アカウント状況", 
-    "📚 ③ 使用可能日記文",
-    "🖼 ④ 使用可能画像"
+    "📝 ① データ登録", 
+    "📊 ② 店舗アカウント状況", 
+    "📚 ③ 使用可能日記文",
+    "🖼 ④ 使用可能画像"
 ])
 
+# データ読み込み処理
 combined_data = []
 acc_summary = {}; acc_counts = {}
 try:
-    all_ws = SPRS.worksheets()
-    ws_dict = {ws.title: ws for ws in all_ws}
-    for code, s_name in POSTING_ACCOUNT_SHEETS.items():
-        if s_name in ws_dict:
-            rows = ws_dict[s_name].get_all_values()
-            if len(rows) > 1:
-                for i, r in enumerate(rows[1:]):
-                    if any(str(c).strip() for c in r[:7]):
-                        combined_data.append([code, i+2] + [r[j] if j<len(r) else "" for j in range(7)])
-                        a, s, m = str(r[0]).strip(), str(r[1]).strip(), str(r[2]).strip()
-                        acc_counts[code] = acc_counts.get(code, 0) + 1
-                        if code not in acc_summary: acc_summary[code] = {}
-                        if a not in acc_summary[code]: acc_summary[code][a] = set()
-                        acc_summary[code][a].add(f"{m} : {s}")
+    all_ws = SPRS.worksheets()
+    ws_dict = {ws.title: ws for ws in all_ws}
+    for code, s_name in POSTING_ACCOUNT_SHEETS.items():
+        if s_name in ws_dict:
+            rows = ws_dict[s_name].get_all_values()
+            if len(rows) > 1:
+                for i, r in enumerate(rows[1:]):
+                    if any(str(c).strip() for c in r[:7]):
+                        combined_data.append([code, i+2] + [r[j] if j<len(r) else "" for j in range(7)])
+                        a, s, m = str(r[0]).strip(), str(r[1]).strip(), str(r[2]).strip()
+                        acc_counts[code] = acc_counts.get(code, 0) + 1
+                        if code not in acc_summary: acc_summary[code] = {}
+                        if a not in acc_summary[code]: acc_summary[code][a] = set()
+                        acc_summary[code][a].add(f"{m} : {s}")
 except: pass
 
 # =========================================================
@@ -360,3 +360,4 @@ with tab4:
                     st.caption(f":grey[{b_name.split('/')[-1][:10]}]")
 
     ochimise_action_fragment(folders, show_all)
+
