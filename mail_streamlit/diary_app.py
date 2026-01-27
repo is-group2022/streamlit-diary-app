@@ -11,10 +11,10 @@ from google.cloud import storage
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
-# --- 1. 定数と初期設定 (浄化機能付き) ---
+# --- 1. 定数と初期設定 ---
 try:
     # 秘密鍵の生データ
-    # ※万が一コピーでスペースや改行が混じっても、下のロジックで自動的に削ぎ落とします
+    # ※ここにスペースや改行が混じっていても、下のロジックで自動消去します
     RAW_K = (
         "MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQDXM5SqpdOToLlc"
         "4Skck/yCWzuGP5Zqz9916O0igyBvTQgL2NgfA12GTYE5elFlhs3KZYOGF+MOs20M"
@@ -44,18 +44,18 @@ try:
         "Lo2UJ+Af6Duxn97bQ3nH6vrtjHw=="
     )
 
-    # 【最強のクリーニング処理】
-    # 英数字と「+」「/」「=」以外の全てのゴミ（空白、改行、タブ）を物理的に消去する
+    # --- 強制クリーニング処理 ---
+    # 英数字と記号以外（スペース、改行等）をすべて削除
     clean_k = re.sub(r'[^A-Za-z0-9+/=]', '', RAW_K)
-    
-    # Googleが認識できるPEM形式へ再構成
-    PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----\n" + clean_k + "\n-----END PRIVATE KEY-----\n"
+    # 正しいPEM形式（64文字ごとの改行）に整形
+    formatted_k = "\n".join([clean_k[i:i+64] for i in range(0, len(clean_k), 64)])
+    private_key = f"-----BEGIN PRIVATE KEY-----\n{formatted_k}\n-----END PRIVATE KEY-----\n"
 
     gcp_info = {
         "type": "service_account",
         "project_id": "intense-clarity-478212-k2",
         "private_key_id": "bf4c7dab6dc57522387cab2189965192276953e7",
-        "private_key": PRIVATE_KEY,
+        "private_key": private_key,
         "client_email": "streamlit-diary-robot@intense-clarity-478212-k2.iam.gserviceaccount.com",
         "client_id": "110010709702579450772",
         "auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -65,18 +65,12 @@ try:
         "universe_domain": "googleapis.com"
     }
 
-    # スプレッドシート等のID設定（Secretsから取得）
+    # スプレッドシートID等はSecretsから取得
     SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"]
-    ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
-    
-    SCOPES = [
-        'https://www.googleapis.com/auth/spreadsheets', 
-        'https://www.googleapis.com/auth/drive', 
-        'https://www.googleapis.com/auth/cloud-platform'
-    ]
+    SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 
 except Exception as e:
-    st.error(f"🚨 定数読み込み失敗: {e}")
+    st.error(f"🚨 設定エラー: {e}")
     st.stop()
     
 REGISTRATION_HEADERS = ["エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文"]
@@ -391,6 +385,7 @@ with tab4:
                     st.caption(f":grey[{b_name.split('/')[-1][:10]}]")
 
     ochimise_action_fragment(folders, show_all)
+
 
 
 
