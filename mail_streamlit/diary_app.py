@@ -219,136 +219,134 @@ with tab1:
 # --- Tab 2: 📊 ② 店舗アカウント状況 ---
 # =========================================================
 with tab2:
-    st.markdown("## 📊 店舗アカウント状況")
-    if combined_data:
-        for acc_code in POSTING_ACCOUNT_OPTIONS:
-            count = acc_counts.get(acc_code, 0)
-            st.markdown(f"### 👤 投稿{acc_code}アカウント `{count} 件`")
-            if acc_code in acc_summary:
-                areas = acc_summary[acc_code]
-                area_cols = st.columns(len(areas) if len(areas) > 0 else 1)
-                for idx, (area_name, shops) in enumerate(areas.items()):
-                    with area_cols[idx]:
-                        st.info(f"📍 **{area_name}**")
-                        for shop in sorted(shops):
-                            st.text(f"🏢 {shop}")
+    st.markdown("## 📊 店舗アカウント状況")
+    if combined_data:
+        for acc_code in POSTING_ACCOUNT_OPTIONS:
+            count = acc_counts.get(acc_code, 0)
+            st.markdown(f"### 👤 投稿{acc_code}アカウント `{count} 件`")
+            if acc_code in acc_summary:
+                areas = acc_summary[acc_code]
+                area_cols = st.columns(len(areas) if len(areas) > 0 else 1)
+                for idx, (area_name, shops) in enumerate(areas.items()):
+                    with area_cols[idx]:
+                        st.info(f"📍 **{area_name}**")
+                        for shop in sorted(shops):
+                            st.text(f"🏢 {shop}")
 
 # =========================================================
 # --- Tab 3: 📚 ③ 使用可能日記文 ---
 # =========================================================
 with tab3:
-    st.header("3️⃣ 使用可能日記文")
-    @st.cache_data
-    def get_usable_diary_data(update_tick):
-        tmp_sprs = GC.open_by_key("1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM")
-        tmp_ws = tmp_sprs.sheet1 
-        return tmp_ws.get_all_values()
+    st.header("3️⃣ 使用可能日記文")
+    @st.cache_data
+    def get_usable_diary_data(update_tick):
+        tmp_sprs = GC.open_by_key("1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM")
+        tmp_ws = tmp_sprs.sheet1 
+        return tmp_ws.get_all_values()
 
-    if 'tab3_update_tick' not in st.session_state:
-        st.session_state.tab3_update_tick = 0
+    if 'tab3_update_tick' not in st.session_state:
+        st.session_state.tab3_update_tick = 0
 
-    col_refresh, _ = st.columns([1, 4])
-    if col_refresh.button("🔄 データを最新に更新", key="refresh_tab3", use_container_width=True):
-        st.session_state.tab3_update_tick += 1
-        st.cache_data.clear()
-        st.rerun()
+    col_refresh, _ = st.columns([1, 4])
+    if col_refresh.button("🔄 データを最新に更新", key="refresh_tab3", use_container_width=True):
+        st.session_state.tab3_update_tick += 1
+        st.cache_data.clear()
+        st.rerun()
 
-    try:
-        tmp_data = get_usable_diary_data(st.session_state.tab3_update_tick)
-        if len(tmp_data) > 1:
-            df_usable = pd.DataFrame(tmp_data[1:], columns=tmp_data[0])
-            st.dataframe(df_usable, use_container_width=True, height=600, hide_index=True)
-        else:
-            st.info("表示できる日記文がありません。")
-    except Exception as e:
-        st.error(f"読み込みエラー: {e}")
+    try:
+        tmp_data = get_usable_diary_data(st.session_state.tab3_update_tick)
+        if len(tmp_data) > 1:
+            df_usable = pd.DataFrame(tmp_data[1:], columns=tmp_data[0])
+            st.dataframe(df_usable, use_container_width=True, height=600, hide_index=True)
+        else:
+            st.info("表示できる日記文がありません。")
+    except Exception as e:
+        st.error(f"読み込みエラー: {e}")
 
 # =========================================================
 # --- Tab 4: 🖼 ④ 使用可能画像 ---
 # =========================================================
 with tab4:
-    st.header("🖼 使用可能画像ブラウザ（落ち店）")
-    ROOT_PATH = "【落ち店】/"
+    st.header("🖼 使用可能画像ブラウザ（落ち店）")
+    ROOT_PATH = "【落ち店】/"
 
-    @st.cache_data(show_spinner=False)
-    def get_ochimise_folders_v9(update_tick):
-        blobs = GCS_CLIENT.list_blobs(GCS_BUCKET_NAME, prefix=ROOT_PATH, delimiter='/')
-        list(blobs)
-        return blobs.prefixes
+    @st.cache_data(show_spinner=False)
+    def get_ochimise_folders_v9(update_tick):
+        blobs = GCS_CLIENT.list_blobs(GCS_BUCKET_NAME, prefix=ROOT_PATH, delimiter='/')
+        list(blobs)
+        return blobs.prefixes
 
-    if 'tab4_tick' not in st.session_state: st.session_state.tab4_tick = 0
+    if 'tab4_tick' not in st.session_state: st.session_state.tab4_tick = 0
 
-    c_btn, _ = st.columns([1.5, 4])
-    if c_btn.button("🔄 店舗リストを強制更新", key="update_4_img"):
-        st.session_state.tab4_tick += 1
-        st.cache_data.clear()
-        st.rerun()
+    c_btn, _ = st.columns([1.5, 4])
+    if c_btn.button("🔄 店舗リストを強制更新", key="update_4_img"):
+        st.session_state.tab4_tick += 1
+        st.cache_data.clear()
+        st.rerun()
 
-    folders = get_ochimise_folders_v9(st.session_state.tab4_tick)
-    show_all = st.checkbox("📂 全画像表示（一括モード）", key="all_check_4")
+    folders = get_ochimise_folders_v9(st.session_state.tab4_tick)
+    show_all = st.checkbox("📂 全画像表示（一括モード）", key="all_check_4")
 
-    @st.fragment
-    def ochimise_action_fragment(folders, show_all):
-        bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
-        
-        @st.cache_data(ttl=600, show_spinner=False)
-        def get_img_list_fast(path, is_all):
-            if is_all:
-                blobs = list(bucket.list_blobs(prefix=ROOT_PATH))
-            else:
-                blobs = list(bucket.list_blobs(prefix=path, delimiter='/'))
-            return [bl.name for bl in blobs if bl.name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
+    @st.fragment
+    def ochimise_action_fragment(folders, show_all):
+        bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
+        
+        @st.cache_data(ttl=600, show_spinner=False)
+        def get_img_list_fast(path, is_all):
+            if is_all:
+                blobs = list(bucket.list_blobs(prefix=ROOT_PATH))
+            else:
+                blobs = list(bucket.list_blobs(prefix=path, delimiter='/'))
+            return [bl.name for bl in blobs if bl.name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
 
-        target_path = ROOT_PATH
-        current_label = "一括"
-        
-        if not show_all:
-            if folders:
-                folder_opts = {f.replace(ROOT_PATH, "").replace("/", ""): f for f in folders}
-                sel = st.selectbox("📁 店舗を選択", ["未選択"] + list(folder_opts.keys()), key="sel_f_4")
-                if sel == "未選択": return
-                target_path = folder_opts[sel]
-                current_label = sel
-            else: return
+        target_path = ROOT_PATH
+        current_label = "一括"
+        
+        if not show_all:
+            if folders:
+                folder_opts = {f.replace(ROOT_PATH, "").replace("/", ""): f for f in folders}
+                sel = st.selectbox("📁 店舗を選択", ["未選択"] + list(folder_opts.keys()), key="sel_f_4")
+                if sel == "未選択": return
+                target_path = folder_opts[sel]
+                current_label = sel
+            else: return
 
-        img_names = get_img_list_fast(target_path, show_all)
-        
-        if img_names:
-            search_q = st.text_input("🔍 絞り込み検索", key="q_4")
-            display_imgs = [n for n in img_names if search_q.lower() in n.lower()]
+        img_names = get_img_list_fast(target_path, show_all)
+        
+        if img_names:
+            search_q = st.text_input("🔍 絞り込み検索", key="q_4")
+            display_imgs = [n for n in img_names if search_q.lower() in n.lower()]
 
-            c1, c2, c3, c4 = st.columns([1, 1, 2, 2])
-            if c1.button("✅ 全選択"):
-                for n in display_imgs: st.session_state[f"s4_{n}"] = True
-                st.rerun()
-            if c2.button("⬜️ 解除"):
-                for n in display_imgs: st.session_state[f"s4_{n}"] = False
-                st.rerun()
+            c1, c2, c3, c4 = st.columns([1, 1, 2, 2])
+            if c1.button("✅ 全選択"):
+                for n in display_imgs: st.session_state[f"s4_{n}"] = True
+                st.rerun()
+            if c2.button("⬜️ 解除"):
+                for n in display_imgs: st.session_state[f"s4_{n}"] = False
+                st.rerun()
 
-            selected = [n for n in display_imgs if st.session_state.get(f"s4_{n}")]
+            selected = [n for n in display_imgs if st.session_state.get(f"s4_{n}")]
 
-            if selected:
-                zip_buf = BytesIO()
-                with zipfile.ZipFile(zip_buf, "w") as zf:
-                    for p in selected:
-                        zf.writestr(p.split('/')[-1], bucket.blob(p).download_as_bytes())
-                
-                c3.download_button(f"① {len(selected)}枚を保存(ZIP)", zip_buf.getvalue(), f"{current_label}.zip", type="primary", use_container_width=True)
-                
-                if c4.button(f"② 保存完了・削除実行", key="del_btn_4", type="secondary", use_container_width=True):
-                    for n in selected: bucket.blob(n).delete()
-                    for n in selected: st.session_state[f"s4_{n}"] = False
-                    st.cache_data.clear()
-                    st.rerun()
-                st.warning("⚠️ 保存後、必ず②を押して消去してください（使い回し防止）")
+            if selected:
+                zip_buf = BytesIO()
+                with zipfile.ZipFile(zip_buf, "w") as zf:
+                    for p in selected:
+                        zf.writestr(p.split('/')[-1], bucket.blob(p).download_as_bytes())
+                
+                c3.download_button(f"① {len(selected)}枚を保存(ZIP)", zip_buf.getvalue(), f"{current_label}.zip", type="primary", use_container_width=True)
+                
+                if c4.button(f"② 保存完了・削除実行", key="del_btn_4", type="secondary", use_container_width=True):
+                    for n in selected: bucket.blob(n).delete()
+                    for n in selected: st.session_state[f"s4_{n}"] = False
+                    st.cache_data.clear()
+                    st.rerun()
+                st.warning("⚠️ 保存後、必ず②を押して消去してください（使い回し防止）")
 
-            cols = st.columns(8)
-            for idx, b_name in enumerate(display_imgs):
-                with cols[idx % 8]:
-                    st.image(get_cached_url(b_name), use_container_width=True)
-                    st.checkbox("選", key=f"s4_{b_name}", label_visibility="collapsed")
-                    st.caption(f":grey[{b_name.split('/')[-1][:10]}]")
+            cols = st.columns(8)
+            for idx, b_name in enumerate(display_imgs):
+                with cols[idx % 8]:
+                    st.image(get_cached_url(b_name), use_container_width=True)
+                    st.checkbox("選", key=f"s4_{b_name}", label_visibility="collapsed")
+                    st.caption(f":grey[{b_name.split('/')[-1][:10]}]")
 
-    ochimise_action_fragment(folders, show_all)
-
-
+    ochimise_action_fragment(folders, show_all)
