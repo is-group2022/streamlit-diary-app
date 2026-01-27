@@ -13,30 +13,67 @@ from googleapiclient.http import MediaIoBaseUpload
 
 # --- 1. 定数と初期設定 ---
 try:
-    gcp_info = st.secrets["gcp_service_account"].to_dict()
-    # 最小限の補正（念のための改行変換のみ）
-    gcp_info["private_key"] = gcp_info["private_key"].replace("\\n", "\n")
+    # 秘密鍵をコードに直接定義（管理画面での保存エラーを回避）
+    PRIVATE_KEY = (
+        "-----BEGIN PRIVATE KEY-----\n"
+        "MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQDXM5SqpdOToLlc\n"
+        "4Skck/yCWzuGP5Zqz9916O0igyBvTQgL2NgfA12GTYE5elFlhs3KZYOGF+MOs20M\n"
+        "5+K5JY2fsy4esm7exVW5ndgbcsFYkc8RGbcjdkge07zHRA0tARTsWfIliJdfm1V2\n"
+        "bu/5VICFPTh8Ks/v703/4mBKlDWCyyni1JiYAt61LztvaHuTxbFc5SNQWVeuULZj\n"
+        "jIrC/G4/6m4fMjVhbiLe+tAtyVV437Mo2+edanny47jH+zW4MUxwWwkSPEU1bUR1\n"
+        "iEZ5vyXrms8TubfsRfYNOpJHF6f86Y46Xno77uDTqA8Q+x6Z1sDrkqieIhugwtk7\n"
+        "074qNn53AgMBAAECggEAAl/ETRmlOuS0Bs1JGdKcH4gIIRQEgcsnSPK34wCVVAUC\n"
+        "iLbss3LjDj8+pLavvTH+hTQXflw3GgtqsZDBVI+Qf2mHobkQNg7xQin2n17luSdq\n"
+        "pGKnPZHpe8WUOJKMnql7ZJwdasKWAO0CxVq19Qc0n8OsItqKDriSILeLnmcCLB4y\n"
+        "ney8bIWF7doh2NNNMviaEZAakV0uAOwH/tePv4y9wVE++x4YpC3a9TwrJ3B2sDOOw\n"
+        "mMHxafSpLP29Eyg2wZOlNjw5DK5eSBvfdWZoHANb/v660YnmYY9oG+yakGTtrdVc\n"
+        "0uYWW18zy5X9h40A0abVJ39FAkUAAitq7UMj1AtsOQKBgQDuGWQs96cPVCv9VpXi\n"
+        "/P6auoXQOY74K0TEu99I3/9MTEvYnBT4ccFzGetu/4dyvEKYduz+semJlSdH5oeB\n"
+        "lcgDbS02Buzy2huBDBjG7bqFijsOcfcHu5xU/lC2gnRMFZBG75I5fDnRRYup9cL6\n"
+        "tK/iQzcPkYpdNPdenFJ+DIWc6wKBgQDnYXxZCrhHwsP0WLthMWswpNbfrmSQ5yuO\n"
+        "jT7c7jQv2WQg7KbGGS2m/r2fLbcHAhr8FfJj0lZnGzMI0WqHPYiE5O2ikbZfSeor\n"
+        "xNYASJOr8IT/NYL7cj4bGUiUPp8VhquL5CVj/okQe2urBckuo8U2Wk9hRIjGJpkq\n"
+        "XDS8r9ZRpQKBgQDZdqVxEKwrqvQWiYuSawHbrjpjiP6UmWhQy0rPU47oT9MCPuRE\n"
+        "WhmWl/jZQ1ehqmKkwBILOdGUEH91Aw+GgpfQ0Vl2u/KUiDKQtcy3fA9cwnjX46z9\n"
+        "ChRp6HEtkI7JovRIZa1HBbgMQqGiFM4FjxwJatySQpp+MM8yQVJyv9sVCwKBgQCy\n"
+        "dxHHSCptRz+HV21oAQsRYQNPUh7FWVjSQgWruJtOENpXPtE/2KnKtY+imEskv636\n"
+        "pB7qeZElQ+hwM758A60p+72C9+r3wnY5PkBlxZUJOKIMisS1lx9qHW1K0qY3n0Dv\n"
+        "zJA+eVRU/y1Do1nSfIUfcDbr6kWouJrI/oe6xdGD9QKBgQDX3JjCz+en+vJf6JYy\n"
+        "SHwnP4YzAb2jiuDdhsG7YhLBrAM2mjAoPXeQU9Mu/eqjK6JaiBKUAofSWaSVWZJi\n"
+        "ju9pNeQ9cTEBRgIv2t3GyDQCjDMzE7+GIc16TH4wl4ceT6W3enZawUfXi4XnlfTL\n"
+        "o2UJ+Af6Duxn97bQ3nH6vrtjHw==\n"
+        "-----END PRIVATE KEY-----\n"
+    )
 
-    SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"] 
+    # 認証用辞書の作成
+    gcp_info = {
+        "type": "service_account",
+        "project_id": st.secrets["gcp_service_account"]["project_id"],
+        "private_key_id": "bf4c7dab6dc57522387cab2189965192276953e7",
+        "private_key": PRIVATE_KEY,
+        "client_email": st.secrets["gcp_service_account"]["client_email"],
+        "client_id": "110010709702579450772",
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_x509_cert_url": f"https://www.googleapis.com/robot/v1/metadata/x509/{st.secrets['gcp_service_account']['client_email']}",
+        "universe_domain": "googleapis.com"
+    }
+
+    SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"]
     ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
     USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
     GCS_BUCKET_NAME = "auto-poster-images"
 
     SHEET_NAMES = st.secrets["sheet_names"]
-    POSTING_ACCOUNT_SHEETS = {
-        "A": "投稿Aアカウント",
-        "B": "投稿Bアカウント",
-        "C": "投稿Cアカウント",
-        "D": "投稿Dアカウント"
-    }
-    
+    POSTING_ACCOUNT_SHEETS = {"A": "投稿Aアカウント", "B": "投稿Bアカウント", "C": "投稿Cアカウント", "D": "投稿Dアカウント"}
     USABLE_DIARY_SHEET = "写メ日記集めシート"
     MEDIA_OPTIONS = ["駅ちか", "デリじゃ"]
     POSTING_ACCOUNT_OPTIONS = ["A", "B", "C", "D"] 
-    
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/cloud-platform']
+
 except Exception as e:
-    st.error(f"🚨 secrets.tomlの設定を確認してください: {e}")
+    st.error(f"🚨 設定読み込みエラー: {e}")
     st.stop()
 
 REGISTRATION_HEADERS = ["エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文"]
@@ -351,6 +388,7 @@ with tab4:
                     st.caption(f":grey[{b_name.split('/')[-1][:10]}]")
 
     ochimise_action_fragment(folders, show_all)
+
 
 
 
