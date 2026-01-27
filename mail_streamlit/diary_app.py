@@ -15,7 +15,7 @@ from googleapiclient.http import MediaIoBaseUpload
 try:
     # Secretsから辞書形式で取得し、秘密鍵の改行を補正
     gcp_info = st.secrets["gcp_service_account"].to_dict()
-    gcp_info["private_key"] = gcp_info["private_key"].replace("\\n", "\n")
+    gcp_info["private_key"] = gcp_info["private_key"].replace("\\n", "\n").replace('"', '')
 
     SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"] 
     ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
@@ -31,7 +31,7 @@ try:
         "D": "投稿Dアカウント"
     }
     
-    USABLE_DIARY_SHEET = "【使用可能日記文】"
+    USABLE_DIARY_SHEET = "写メ日記集めシート"
     MEDIA_OPTIONS = ["駅ちか", "デリじゃ"]
     POSTING_ACCOUNT_OPTIONS = ["A", "B", "C", "D"] 
     
@@ -47,7 +47,9 @@ INPUT_HEADERS = ["投稿時間", "女の子の名前", "タイトル", "本文"]
 @st.cache_resource(ttl=3600)
 def get_gspread_client():
     """スプレッドシートAPIのクライアントを作成"""
-    return gspread.service_account_from_dict(gcp_info)
+    # 明示的にCredentialsオブジェクトを作成することでInvalid private keyを回避
+    creds = Credentials.from_service_account_info(gcp_info, scopes=SCOPES)
+    return gspread.authorize(creds)
 
 @st.cache_resource(ttl=3600)
 def get_gcs_client():
@@ -350,3 +352,4 @@ with tab4:
                     st.caption(f":grey[{b_name.split('/')[-1][:10]}]")
 
     ochimise_action_fragment(folders, show_all)
+
