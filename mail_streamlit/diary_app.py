@@ -12,28 +12,33 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
 # --- 1. 定数と初期設定 ---
+# Secretsから直接取得せず、エラーが出にくい書き方に変更します
 try:
-    SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"] 
+    # メインのスプレッドシートID
+    SHEET_ID = st.secrets.get("google_resources", {}).get("spreadsheet_id", "1sEzw59aswIlA-8_CTyUrRBLN7OnrRIJERKUZ_bELMrY")
+    
+    # ログイン情報などを管理するサブシート
     ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
     USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
     
     GCS_BUCKET_NAME = "auto-poster-images"
 
-    SHEET_NAMES = st.secrets["sheet_names"]
+    # タブ名の設定
     POSTING_ACCOUNT_SHEETS = {
-        "A": "投稿Aアカウント",
+        "A": "日記登録用シート",
         "B": "投稿Bアカウント",
         "C": "投稿Cアカウント",
         "D": "投稿Dアカウント"
     }
     
-    USABLE_DIARY_SHEET = "【使用可能日記文】"
+    USABLE_DIARY_SHEET = "写メ日記集めシート"
     MEDIA_OPTIONS = ["駅ちか", "デリじゃ"]
     POSTING_ACCOUNT_OPTIONS = ["A", "B", "C", "D"] 
     
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/cloud-platform']
-except KeyError:
-    st.error("🚨 secrets.tomlの設定を確認してください。")
+
+except Exception as e:
+    st.error(f"🚨 設定の読み込みでエラーが発生しました: {e}")
     st.stop()
 
 REGISTRATION_HEADERS = ["エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文"]
@@ -360,3 +365,4 @@ with tab4:
                     st.caption(f":grey[{b_name.split('/')[-1][:10]}]")
 
     ochimise_action_fragment(folders, show_all)
+
