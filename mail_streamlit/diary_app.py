@@ -44,14 +44,19 @@ INPUT_HEADERS = ["投稿時間", "女の子の名前", "タイトル", "本文"]
 @st.cache_resource(ttl=3600)
 def get_gspread_client():
     """スプレッドシートAPIのクライアントを作成"""
-    return gspread.service_account_from_dict(st.secrets["gcp_service_account"])
+    # ここを以下のように書き換えます
+    auth_info = dict(st.secrets["gcp_service_account"])
+    auth_info["private_key"] = auth_info["private_key"].replace("\\n", "\n")
+    return gspread.service_account_from_dict(auth_info)
 
 @st.cache_resource(ttl=3600)
 def get_gcs_client():
     """Google Cloud Storageのクライアントを作成"""
+    # こちらも同様に修正します
+    auth_info = dict(st.secrets["gcp_service_account"])
+    auth_info["private_key"] = auth_info["private_key"].replace("\\n", "\n")
     from google.cloud import storage
-    return storage.Client.from_service_account_info(st.secrets["gcp_service_account"])
-
+    return storage.Client.from_service_account_info(auth_info)
 try:
     # 1. まずクライアントを作成
     GC = get_gspread_client()
@@ -361,6 +366,7 @@ with tab4:
                     st.caption(f":grey[{b_name.split('/')[-1][:10]}]")
 
     ochimise_action_fragment(folders, show_all)
+
 
 
 
