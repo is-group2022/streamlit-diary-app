@@ -15,19 +15,29 @@ from googleapiclient.http import MediaIoBaseUpload
 try:
     gcp_info = st.secrets["gcp_service_account"].to_dict()
     
-    # 【改行コード・引用符・ゴミをすべて強制排除する決定版ロジック】
-    raw_key = gcp_info["private_key"]
-    # 1. 文字列としての "\\n" を本物の改行に変換
-    # 2. 前後の不要な引用符や空白を削除
-    clean_key = raw_key.replace("\\n", "\n").strip().strip('"')
+    # 【究極のクリーニングロジック】
+    # 1. 前後の余計な文字を削除
+    raw_key = gcp_info["private_key"].strip().strip('"')
     
-    # 3. 連続した改行コードや目に見えない制御文字を整理
-    import re
-    clean_key = re.sub(r'\n+', '\n', clean_key)
+    # 2. 鍵のヘッダー/フッターと、中身のデータ部分を分離
+    #    中身にあるスペースや「\n」という文字列、実際の改行をすべて除去して再構成
+    header = "-----BEGIN PRIVATE KEY-----"
+    footer = "-----END PRIVATE KEY-----"
     
-    gcp_info["private_key"] = clean_key
+    if header in raw_key and footer in raw_key:
+        # ヘッダーとフッターに挟まれた「中身」だけを取り出す
+        inner_content = raw_key.split(header)[1].split(footer)[0]
+        # 中身から「\n」(文字)、「本物の改行」、「スペース」、「タブ」をすべて消す
+        inner_content = inner_content.replace("\\n", "").replace("\n", "").replace(" ", "").replace("\t", "").strip()
+        
+        # Googleが認識できる「64文字ごとに改行された正しいPEM形式」に作り直す
+        lines = [inner_content[i:i+64] for i in range(0, len(inner_content), 64)]
+        gcp_info["private_key"] = f"{header}\n" + "\n".join(lines) + f"\n{footer}\n"
+    else:
+        # 万が一ヘッダーがない場合は従来の置換（一応の予備）
+        gcp_info["private_key"] = raw_key.replace("\\n", "\n")
 
-    # 各種ID・定数の読み込み
+    # 各種IDの設定
     SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"] 
     ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
     USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
@@ -362,5 +372,6 @@ with tab4:
                     st.caption(f":grey[{b_name.split('/')[-1][:10]}]")
 
     ochimise_action_fragment(folders, show_all)
+
 
 
