@@ -10,42 +10,47 @@ from google.oauth2.service_account import Credentials
 from google.cloud import storage
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
-# --- 1. 定数と初期設定 (完全固定・最終版) ---
+
+# --- 1. 定数と初期設定 (浄化機能付き) ---
 try:
-    # 秘密鍵をGoogleが最も好む「複数行のPEM形式」で直接定義
-    # これによりSecrets管理画面の保存バグや文字化けを100%回避します
-    PRIVATE_KEY = (
-        "-----BEGIN PRIVATE KEY-----\n"
-        "MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQDXM5SqpdOToLlc\n"
-        "4Skck/yCWzuGP5Zqz9916O0igyBvTQgL2NgfA12GTYE5elFlhs3KZYOGF+MOs20M\n"
-        "5+K5JY2fsy4esm7exVW5ndgbcsFYkc8RGbcjdkge07zHRA0tARTsWfIliJdfm1V2\n"
-        "bu/5VICFPTh8Ks/v703/4mBKlDWCyyni1JiYAt61LztvaHuTxbFc5SNQWVeuULZj\n"
-        "jIrC/G4/6m4fMjVhbiLe+tAtyVV437Mo2+edanny47jH+zW4MUxwWwkSPEU1bUR1\n"
-        "iEZ5vyXrms8TubfsRfYNOpJHF6f86Y46Xno77uDTqA8Q+x6Z1sDrkqieIhugwtk7\n"
-        "074qNn53AgMBAAECggEAAl/ETRmlOuS0Bs1JGdKcH4gIIRQEgcsnSPK34wCVVAUC\n"
-        "iLbss3LjDj8+pLavvTH+hTQXflw3GgtqsZDBVI+Qf2mHobkQNg7xQin2n17luSdq\n"
-        "pGKnPZHpe8WUOJKMnql7ZJwdasKWAO0CxVq19Qc0n8OsItqKDriSILeLnmcCLB4y\n"
-        "ney8bIWF7doh2NNNMviaEZAakV0uAOwH/tePv4y9wVE++x4YpC3a9TwrJ3B2sDOO\n"
-        "wmMHxafSpLP29Eyg2wZOlNjw5DK5eSBvfdWZoHANb/v660YnmYY9oG+yakGTtrdV\n"
-        "c0uYWW18zy5X9h40A0abVJ39FAkUAAitq7UMj1AtsOQKBgQDuGWQs96cPVCv9VpX\n"
-        "i/P6auoXQOY74K0TEu99I3/9MTEvYnBT4ccFzGetu/4dyvEKYduz+semJlSdH5oe\n"
-        "BlcgDbS02Buzy2huBDBjG7bqFijsOcfcHu5xU/lC2gnRMFZBG75I5fDnRRYup9cL\n"
-        "6tK/iQzcPkYpdNPdenFJ+DIWc6wKBgQDnYXxZCrhHwsP0WLthMWswpNbfrmSQ5yu\n"
-        "OjT7c7jQv2WQg7KbGGS2m/r2fLbcHAhr8FfJj0lZnGzMI0WqHPYiE5O2ikbZfSeo\n"
-        "rxNYASJOr8IT/NYL7cj4bGUiUPp8VhquL5CVj/okQe2urBckuo8U2Wk9hRIjGJPk\n"
-        "qXDS8r9ZRpQKBgQDZdqVxEKwrqvQWiYuSawHbrjpjiP6UmWhQy0rPU47oT9MCPuR\n"
-        "EWhmWl/jZQ1ehqmKkwBILOdGUEH91Aw+GgpfQ0Vl2u/KUiDKQtcy3fA9cwnjX46z\n"
-        "9ChRp6HEtkI7JovRIZa1HBbgMQqGiFM4FjxwJatySQpp+MM8yQVJyv9sVCwKBgQC\n"
-        "ydxHHSCptRz+HV21oAQsRYQNPUh7FWVjSQgWruJtOENpXPtE/2KnKtY+imEskv63\n"
-        "6pB7qeZElQ+hwM758A60p+72C9+r3wnY5PkBlxZUJOKIMisS1lx9qHW1K0qY3n0D\n"
-        "vzJA+eVRU/y1Do1nSfIUfcDbr6kWouJrI/oe6xdGD9QKBgQDX3JjCz+en+vJf6JY\n"
-        "ySHwnP4YzAb2jiuDdhsG7YhLBrAM2mjAoPXeQU9Mu/eqjK6JaiBKUAofSWaSVWZJ\n"
-        "iju9pNeQ9cTEBRgIv2t3GyDQCjDMzE7+GIc16TH4wl4ceT6W3enZawUfXi4XnlfT\n"
-        "Lo2UJ+Af6Duxn97bQ3nH6vrtjHw==\n"
-        "-----END PRIVATE KEY-----\n"
+    # 秘密鍵の生データ
+    # ※万が一コピーでスペースや改行が混じっても、下のロジックで自動的に削ぎ落とします
+    RAW_K = (
+        "MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQDXM5SqpdOToLlc"
+        "4Skck/yCWzuGP5Zqz9916O0igyBvTQgL2NgfA12GTYE5elFlhs3KZYOGF+MOs20M"
+        "5+K5JY2fsy4esm7exVW5ndgbcsFYkc8RGbcjdkge07zHRA0tARTsWfIliJdfm1V2"
+        "bu/5VICFPTh8Ks/v703/4mBKlDWCyyni1JiYAt61LztvaHuTxbFc5SNQWVeuULZj"
+        "jIrC/G4/6m4fMjVhbiLe+tAtyVV437Mo2+edanny47jH+zW4MUxwWwkSPEU1bUR1"
+        "iEZ5vyXrms8TubfsRfYNOpJHF6f86Y46Xno77uDTqA8Q+x6Z1sDrkqieIhugwtk7"
+        "074qNn53AgMBAAECggEAAl/ETRmlOuS0Bs1JGdKcH4gIIRQEgcsnSPK34wCVVAUC"
+        "iLbss3LjDj8+pLavvTH+hTQXflw3GgtqsZDBVI+Qf2mHobkQNg7xQin2n17luSdq"
+        "pGKnPZHpe8WUOJKMnql7ZJwdasKWAO0CxVq19Qc0n8OsItqKDriSILeLnmcCLB4y"
+        "ney8bIWF7doh2NNNMviaEZAakV0uAOwH/tePv4y9wVE++x4YpC3a9TwrJ3B2sDOO"
+        "wmMHxafSpLP29Eyg2wZOlNjw5DK5eSBvfdWZoHANb/v660YnmYY9oG+yakGTtrdV"
+        "c0uYWW18zy5X9h40A0abVJ39FAkUAAitq7UMj1AtsOQKBgQDuGWQs96cPVCv9VpX"
+        "i/P6auoXQOY74K0TEu99I3/9MTEvYnBT4ccFzGetu/4dyvEKYduz+semJlSdH5oe"
+        "BlcgDbS02Buzy2huBDBjG7bqFijsOcfcHu5xU/lC2gnRMFZBG75I5fDnRRYup9cL"
+        "6tK/iQzcPkYpdNPdenFJ+DIWc6wKBgQDnYXxZCrhHwsP0WLthMWswpNbfrmSQ5yu"
+        "OjT7c7jQv2WQg7KbGGS2m/r2fLbcHAhr8FfJj0lZnGzMI0WqHPYiE5O2ikbZfSeo"
+        "rxNYASJOr8IT/NYL7cj4bGUiUPp8VhquL5CVj/okQe2urBckuo8U2Wk9hRIjGJPk"
+        "qXDS8r9ZRpQKBgQDZdqVxEKwrqvQWiYuSawHbrjpjiP6UmWhQy0rPU47oT9MCPuR"
+        "EWhmWl/jZQ1ehqmKkwBILOdGUEH91Aw+GgpfQ0Vl2u/KUiDKQtcy3fA9cwnjX46z"
+        "9ChRp6HEtkI7JovRIZa1HBbgMQqGiFM4FjxwJatySQpp+MM8yQVJyv9sVCwKBgQC"
+        "ydxHHSCptRz+HV21oAQsRYQNPUh7FWVjSQgWruJtOENpXPtE/2KnKtY+imEskv63"
+        "6pB7qeZElQ+hwM758A60p+72C9+r3wnY5PkBlxZUJOKIMisS1lx9qHW1K0qY3n0D"
+        "vzJA+eVRU/y1Do1nSfIUfcDbr6kWouJrI/oe6xdGD9QKBgQDX3JjCz+en+vJf6JY"
+        "ySHwnP4YzAb2jiuDdhsG7YhLBrAM2mjAoPXeQU9Mu/eqjK6JaiBKUAofSWaSVWZJ"
+        "iju9pNeQ9cTEBRgIv2t3GyDQCjDMzE7+GIc16TH4wl4ceT6W3enZawUfXi4XnlfT"
+        "Lo2UJ+Af6Duxn97bQ3nH6vrtjHw=="
     )
 
-    # 認証用辞書をコード内に固定
+    # 【最強のクリーニング処理】
+    # 英数字と「+」「/」「=」以外の全てのゴミ（空白、改行、タブ）を物理的に消去する
+    clean_k = re.sub(r'[^A-Za-z0-9+/=]', '', RAW_K)
+    
+    # Googleが認識できるPEM形式へ再構成
+    PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----\n" + clean_k + "\n-----END PRIVATE KEY-----\n"
+
     gcp_info = {
         "type": "service_account",
         "project_id": "intense-clarity-478212-k2",
@@ -60,14 +65,9 @@ try:
         "universe_domain": "googleapis.com"
     }
 
-    # 各種IDの設定（これらはSecretsから取得）
+    # スプレッドシート等のID設定（Secretsから取得）
     SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"]
     ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
-    USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
-    GCS_BUCKET_NAME = "auto-poster-images"
-
-    SHEET_NAMES = st.secrets["sheet_names"]
-    POSTING_ACCOUNT_SHEETS = {"A": "投稿Aアカウント", "B": "投稿Bアカウント", "C": "投稿Cアカウント", "D": "投稿Dアカウント"}
     
     SCOPES = [
         'https://www.googleapis.com/auth/spreadsheets', 
@@ -78,6 +78,7 @@ try:
 except Exception as e:
     st.error(f"🚨 定数読み込み失敗: {e}")
     st.stop()
+    
 REGISTRATION_HEADERS = ["エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文"]
 INPUT_HEADERS = ["投稿時間", "女の子の名前", "タイトル", "本文"]
 
@@ -390,6 +391,7 @@ with tab4:
                     st.caption(f":grey[{b_name.split('/')[-1][:10]}]")
 
     ochimise_action_fragment(folders, show_all)
+
 
 
 
