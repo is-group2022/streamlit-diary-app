@@ -7,72 +7,35 @@ import re
 from io import BytesIO
 from datetime import timedelta
 from google.oauth2.service_account import Credentials
-from google.cloud import storage
+from google.cloud import storage 
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
 # --- 1. 定数と初期設定 ---
 try:
-    # 秘密鍵の生データ
-    # ※ここにスペースや改行が混じっていても、下のロジックで自動消去します
-    RAW_K = (
-        "MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQDXM5SqpdOToLlc"
-        "4Skck/yCWzuGP5Zqz9916O0igyBvTQgL2NgfA12GTYE5elFlhs3KZYOGF+MOs20M"
-        "5+K5JY2fsy4esm7exVW5ndgbcsFYkc8RGbcjdkge07zHRA0tARTsWfIliJdfm1V2"
-        "bu/5VICFPTh8Ks/v703/4mBKlDWCyyni1JiYAt61LztvaHuTxbFc5SNQWVeuULZj"
-        "jIrC/G4/6m4fMjVhbiLe+tAtyVV437Mo2+edanny47jH+zW4MUxwWwkSPEU1bUR1"
-        "iEZ5vyXrms8TubfsRfYNOpJHF6f86Y46Xno77uDTqA8Q+x6Z1sDrkqieIhugwtk7"
-        "074qNn53AgMBAAECggEAAl/ETRmlOuS0Bs1JGdKcH4gIIRQEgcsnSPK34wCVVAUC"
-        "iLbss3LjDj8+pLavvTH+hTQXflw3GgtqsZDBVI+Qf2mHobkQNg7xQin2n17luSdq"
-        "pGKnPZHpe8WUOJKMnql7ZJwdasKWAO0CxVq19Qc0n8OsItqKDriSILeLnmcCLB4y"
-        "ney8bIWF7doh2NNNMviaEZAakV0uAOwH/tePv4y9wVE++x4YpC3a9TwrJ3B2sDOO"
-        "wmMHxafSpLP29Eyg2wZOlNjw5DK5eSBvfdWZoHANb/v660YnmYY9oG+yakGTtrdV"
-        "c0uYWW18zy5X9h40A0abVJ39FAkUAAitq7UMj1AtsOQKBgQDuGWQs96cPVCv9VpX"
-        "i/P6auoXQOY74K0TEu99I3/9MTEvYnBT4ccFzGetu/4dyvEKYduz+semJlSdH5oe"
-        "BlcgDbS02Buzy2huBDBjG7bqFijsOcfcHu5xU/lC2gnRMFZBG75I5fDnRRYup9cL"
-        "6tK/iQzcPkYpdNPdenFJ+DIWc6wKBgQDnYXxZCrhHwsP0WLthMWswpNbfrmSQ5yu"
-        "OjT7c7jQv2WQg7KbGGS2m/r2fLbcHAhr8FfJj0lZnGzMI0WqHPYiE5O2ikbZfSeo"
-        "rxNYASJOr8IT/NYL7cj4bGUiUPp8VhquL5CVj/okQe2urBckuo8U2Wk9hRIjGJPk"
-        "qXDS8r9ZRpQKBgQDZdqVxEKwrqvQWiYuSawHbrjpjiP6UmWhQy0rPU47oT9MCPuR"
-        "EWhmWl/jZQ1ehqmKkwBILOdGUEH91Aw+GgpfQ0Vl2u/KUiDKQtcy3fA9cwnjX46z"
-        "9ChRp6HEtkI7JovRIZa1HBbgMQqGiFM4FjxwJatySQpp+MM8yQVJyv9sVCwKBgQC"
-        "ydxHHSCptRz+HV21oAQsRYQNPUh7FWVjSQgWruJtOENpXPtE/2KnKtY+imEskv63"
-        "6pB7qeZElQ+hwM758A60p+72C9+r3wnY5PkBlxZUJOKIMisS1lx9qHW1K0qY3n0D"
-        "vzJA+eVRU/y1Do1nSfIUfcDbr6kWouJrI/oe6xdGD9QKBgQDX3JjCz+en+vJf6JY"
-        "ySHwnP4YzAb2jiuDdhsG7YhLBrAM2mjAoPXeQU9Mu/eqjK6JaiBKUAofSWaSVWZJ"
-        "iju9pNeQ9cTEBRgIv2t3GyDQCjDMzE7+GIc16TH4wl4ceT6W3enZawUfXi4XnlfT"
-        "Lo2UJ+Af6Duxn97bQ3nH6vrtjHw=="
-    )
-
-    # --- 強制クリーニング処理 ---
-    # 英数字と記号以外（スペース、改行等）をすべて削除
-    clean_k = re.sub(r'[^A-Za-z0-9+/=]', '', RAW_K)
-    # 正しいPEM形式（64文字ごとの改行）に整形
-    formatted_k = "\n".join([clean_k[i:i+64] for i in range(0, len(clean_k), 64)])
-    private_key = f"-----BEGIN PRIVATE KEY-----\n{formatted_k}\n-----END PRIVATE KEY-----\n"
-
-    gcp_info = {
-        "type": "service_account",
-        "project_id": "intense-clarity-478212-k2",
-        "private_key_id": "bf4c7dab6dc57522387cab2189965192276953e7",
-        "private_key": private_key,
-        "client_email": "streamlit-diary-robot@intense-clarity-478212-k2.iam.gserviceaccount.com",
-        "client_id": "110010709702579450772",
-        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-        "token_uri": "https://oauth2.googleapis.com/token",
-        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-        "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/streamlit-diary-robot@intense-clarity-478212-k2.iam.gserviceaccount.com",
-        "universe_domain": "googleapis.com"
-    }
-
-    # スプレッドシートID等はSecretsから取得
-    SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"]
-    SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
-
-except Exception as e:
-    st.error(f"🚨 設定エラー: {e}")
-    st.stop()
+    SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"] 
+    ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
+    USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
     
+    GCS_BUCKET_NAME = "auto-poster-images"
+
+    SHEET_NAMES = st.secrets["sheet_names"]
+    POSTING_ACCOUNT_SHEETS = {
+        "A": "投稿Aアカウント",
+        "B": "投稿Bアカウント",
+        "C": "投稿Cアカウント",
+        "D": "投稿Dアカウント"
+    }
+    
+    USABLE_DIARY_SHEET = "【使用可能日記文】"
+    MEDIA_OPTIONS = ["駅ちか", "デリじゃ"]
+    POSTING_ACCOUNT_OPTIONS = ["A", "B", "C", "D"] 
+    
+    SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/cloud-platform']
+except KeyError:
+    st.error("🚨 secrets.tomlの設定を確認してください。")
+    st.stop()
+
 REGISTRATION_HEADERS = ["エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文"]
 INPUT_HEADERS = ["投稿時間", "女の子の名前", "タイトル", "本文"]
 
@@ -80,27 +43,37 @@ INPUT_HEADERS = ["投稿時間", "女の子の名前", "タイトル", "本文"]
 @st.cache_resource(ttl=3600)
 def get_gspread_client():
     """スプレッドシートAPIのクライアントを作成"""
-    # 明示的にCredentialsオブジェクトを作成することでInvalid private keyを回避
-    creds = Credentials.from_service_account_info(gcp_info, scopes=SCOPES)
-    return gspread.authorize(creds)
+    return gspread.service_account_from_dict(st.secrets["gcp_service_account"])
 
 @st.cache_resource(ttl=3600)
 def get_gcs_client():
     """Google Cloud Storageのクライアントを作成"""
-    return storage.Client.from_service_account_info(gcp_info)
+    from google.cloud import storage
+    return storage.Client.from_service_account_info(st.secrets["gcp_service_account"])
 
 try:
+    # 1. まずクライアントを作成
     GC = get_gspread_client()
     GCS_CLIENT = get_gcs_client()
+    
+    # 2. スプレッドシートを開く
     SPRS = GC.open_by_key(SHEET_ID)
     STATUS_SPRS = GC.open_by_key(ACCOUNT_STATUS_SHEET_ID)
+    
 except Exception as e:
-    st.error(f"❌ API接続失敗: {e}")
+    if "429" in str(e):
+        st.error("🚨 Google APIの制限を超えました。1分ほど待ってから再読み込みしてください。")
+    elif "name 'get_gcs_client'" in str(e):
+        st.error("🚨 関数定義が不足しています。修正コードを反映してください。")
+    else:
+        st.error(f"❌ API接続失敗: {e}")
     st.stop()
     
+# 【修正箇所】media引数を追加し、session_stateではなく選択された値を参照するように変更
 def gcs_upload_wrapper(uploaded_file, entry, area, store, media):
     try:
         bucket = GCS_CLIENT.bucket(GCS_BUCKET_NAME)
+        # 選択された媒体（media）を直接参照
         folder_name = f"デリじゃ {store}" if media == "デリじゃ" else store
         ext = uploaded_file.name.split('.')[-1]
         blob_path = f"{area}/{folder_name}/{entry['投稿時間'].strip()}_{entry['女の子の名前'].strip()}.{ext}"
@@ -138,6 +111,7 @@ st.markdown("""
 if 'diary_entries' not in st.session_state:
     st.session_state.diary_entries = [{h: "" for h in INPUT_HEADERS} for _ in range(40)]
 
+# タブ構成
 tab1, tab2, tab3, tab4 = st.tabs([
     "📝 ① データ登録", 
     "📊 ② 店舗アカウント状況", 
@@ -232,6 +206,7 @@ with tab1:
             try:
                 progress_text.info("📸 画像をアップロード中...")
                 for e in valid_data:
+                    # 【修正箇所】target_mediaを引数に追加
                     if e['img']: gcs_upload_wrapper(e['img'], e, global_area, global_store, target_media)
                 
                 progress_text.info("📝 日記文を登録中...")
@@ -385,13 +360,3 @@ with tab4:
                     st.caption(f":grey[{b_name.split('/')[-1][:10]}]")
 
     ochimise_action_fragment(folders, show_all)
-
-
-
-
-
-
-
-
-
-
