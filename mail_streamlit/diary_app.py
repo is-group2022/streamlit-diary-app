@@ -25,7 +25,7 @@ try:
 
     # タブ名の設定
     POSTING_ACCOUNT_SHEETS = {
-        "A": "日記登録用シート",
+        "A": "投稿Aアカウント",
         "B": "投稿Bアカウント",
         "C": "投稿Cアカウント",
         "D": "投稿Dアカウント"
@@ -365,4 +365,5 @@ with tab4:
                     st.caption(f":grey[{b_name.split('/')[-1][:10]}]")
 
     ochimise_action_fragment(folders, show_all)
+
 
