@@ -12,29 +12,28 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
 # --- 1. 定数と初期設定 ---
-# 余計なエラーチェックをすべて削除し、直接設定を書き込みます
-SHEET_ID = "1sEzw59aswIlA-8_CTyUrRBLN7OnrRIJERKUZ_bELMrY"
-ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
-USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
+try:
+    SHEET_ID = st.secrets["google_resources"]["spreadsheet_id"] 
+    ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
+    USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
+    
+    GCS_BUCKET_NAME = "auto-poster-images"
 
-GCS_BUCKET_NAME = "auto-poster-images"
-
-# 実際のタブ名
-POSTING_ACCOUNT_SHEETS = {
-    "A": "投稿Aアカウント",
-    "B": "投稿Bアカウント",
-    "C": "投稿Cアカウント",
-    "D": "投稿Dアカウント"
-}
-
-USABLE_DIARY_SHEET = "写メ日記集めシート"
-MEDIA_OPTIONS = ["駅ちか", "デリじゃ"]
-POSTING_ACCOUNT_OPTIONS = ["A", "B", "C", "D"] 
-
-SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/cloud-platform']
-
-except Exception as e:
-    st.error(f"🚨 設定の読み込みでエラーが発生しました: {e}")
+    SHEET_NAMES = st.secrets["sheet_names"]
+    POSTING_ACCOUNT_SHEETS = {
+        "A": "投稿Aアカウント",
+        "B": "投稿Bアカウント",
+        "C": "投稿Cアカウント",
+        "D": "投稿Dアカウント"
+    }
+    
+    USABLE_DIARY_SHEET = "【使用可能日記文】"
+    MEDIA_OPTIONS = ["駅ちか", "デリじゃ"]
+    POSTING_ACCOUNT_OPTIONS = ["A", "B", "C", "D"] 
+    
+    SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/cloud-platform']
+except KeyError:
+    st.error("🚨 secrets.tomlの設定を確認してください。")
     st.stop()
 
 REGISTRATION_HEADERS = ["エリア", "店名", "媒体", "投稿時間", "女の子の名前", "タイトル", "本文"]
@@ -44,19 +43,14 @@ INPUT_HEADERS = ["投稿時間", "女の子の名前", "タイトル", "本文"]
 @st.cache_resource(ttl=3600)
 def get_gspread_client():
     """スプレッドシートAPIのクライアントを作成"""
-    # ここを以下のように書き換えます
-    auth_info = dict(st.secrets["gcp_service_account"])
-    auth_info["private_key"] = auth_info["private_key"].replace("\\n", "\n")
-    return gspread.service_account_from_dict(auth_info)
+    return gspread.service_account_from_dict(st.secrets["gcp_service_account"])
 
 @st.cache_resource(ttl=3600)
 def get_gcs_client():
     """Google Cloud Storageのクライアントを作成"""
-    # こちらも同様に修正します
-    auth_info = dict(st.secrets["gcp_service_account"])
-    auth_info["private_key"] = auth_info["private_key"].replace("\\n", "\n")
     from google.cloud import storage
-    return storage.Client.from_service_account_info(auth_info)
+    return storage.Client.from_service_account_info(st.secrets["gcp_service_account"])
+
 try:
     # 1. まずクライアントを作成
     GC = get_gspread_client()
@@ -366,8 +360,3 @@ with tab4:
                     st.caption(f":grey[{b_name.split('/')[-1][:10]}]")
 
     ochimise_action_fragment(folders, show_all)
-
-
-
-
-
