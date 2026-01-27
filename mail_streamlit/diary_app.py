@@ -12,14 +12,14 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
 # --- 1. 定数と初期設定 ---
-# Secretsの読み込みエラーを回避するため、直接指定に切り替えます
+# 余計なエラーチェックをすべて削除し、直接設定を書き込みます
 SHEET_ID = "1sEzw59aswIlA-8_CTyUrRBLN7OnrRIJERKUZ_bELMrY"
 ACCOUNT_STATUS_SHEET_ID = "1_GmWjpypap4rrPGNFYWkwcQE1SoK3QOMJlozEhkBwVM"
 USABLE_DIARY_SHEET_ID = "1e-iLey43A1t0bIBoijaXP55t5fjONdb0ODiTS53beqM"
 
 GCS_BUCKET_NAME = "auto-poster-images"
 
-# あなたのスプレッドシートの実際のタブ名に合わせました
+# 実際のタブ名
 POSTING_ACCOUNT_SHEETS = {
     "A": "投稿Aアカウント",
     "B": "投稿Bアカウント",
@@ -32,8 +32,6 @@ MEDIA_OPTIONS = ["駅ちか", "デリじゃ"]
 POSTING_ACCOUNT_OPTIONS = ["A", "B", "C", "D"] 
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/cloud-platform']
-
-# ここまで書き換えてください
 
 except Exception as e:
     st.error(f"🚨 設定の読み込みでエラーが発生しました: {e}")
@@ -363,6 +361,7 @@ with tab4:
                     st.caption(f":grey[{b_name.split('/')[-1][:10]}]")
 
     ochimise_action_fragment(folders, show_all)
+
 
 
 
